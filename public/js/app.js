@@ -692,6 +692,53 @@ window.applyPlannedFTEs = function() {
   updatePlanner();
 };
 
+// ── Data backup & restore ──────────────────────────────────────────────────
+window.downloadBackup = async function() {
+  const data = await api('GET', '/api/projects');
+  const json = JSON.stringify(data, null, 2);
+  const blob = new Blob([json], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `loadboard-backup-${new Date().toISOString().slice(0,10)}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast('Backup downloaded!');
+};
+
+window.restoreFromFile = async function(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const statusEl = document.getElementById('restore-status');
+  try {
+    const text = await file.text();
+    const data = JSON.parse(text);
+    if (!Array.isArray(data.projects)) throw new Error('Invalid backup file');
+    if (!confirm(`This will replace ALL current data with ${data.projects.length} projects from the backup file.\n\nAre you sure?`)) {
+      input.value = '';
+      return;
+    }
+    await fetch('/api/restore', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-restore-confirm': 'yes' },
+      body: JSON.stringify(data)
+    });
+    const loaded = await api('GET', '/api/projects');
+    projects = loaded.projects || [];
+    teamCapacity = loaded.teamCapacity || 10;
+    renderAll();
+    statusEl.style.display = 'block';
+    statusEl.style.color = 'var(--green)';
+    statusEl.textContent = `✓ Restored ${projects.length} projects successfully.`;
+    showToast('Data restored!');
+  } catch(e) {
+    statusEl.style.display = 'block';
+    statusEl.style.color = 'var(--red)';
+    statusEl.textContent = `Error: ${e.message}`;
+  }
+  input.value = '';
+};
+
 // ── Report export ──────────────────────────────────────────────────────────
 window.exportReport = function() {
   // Ensure dashboard charts are rendered

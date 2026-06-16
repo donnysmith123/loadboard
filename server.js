@@ -6,6 +6,7 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const DATA_DIR = path.join(__dirname, 'data');
 const DATA_FILE = path.join(DATA_DIR, 'projects.json');
+const BACKUP_FILE = path.join(DATA_DIR, 'projects.backup.json');
 
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR);
 
@@ -13,12 +14,23 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
 function readData() {
-  if (!fs.existsSync(DATA_FILE)) return { projects: [], teamCapacity: 10 };
-  return JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
+  if (fs.existsSync(DATA_FILE)) {
+    try { return JSON.parse(fs.readFileSync(DATA_FILE, 'utf8')); } catch(e) {}
+  }
+  // Fall back to backup if main file is corrupt/missing
+  if (fs.existsSync(BACKUP_FILE)) {
+    try { return JSON.parse(fs.readFileSync(BACKUP_FILE, 'utf8')); } catch(e) {}
+  }
+  return { projects: [], teamCapacity: 10 };
 }
 
 function writeData(data) {
-  fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
+  const json = JSON.stringify(data, null, 2);
+  // Write backup first, then main — so a crash mid-write never loses both
+  if (fs.existsSync(DATA_FILE)) {
+    fs.writeFileSync(BACKUP_FILE, fs.readFileSync(DATA_FILE));
+  }
+  fs.writeFileSync(DATA_FILE, json);
 }
 
 app.get('/api/projects', (req, res) => {
@@ -56,6 +68,17 @@ app.put('/api/settings', (req, res) => {
   res.json({ ok: true });
 });
 
+// Restore from backup file — requires confirmation token from UI
+app.post('/api/restore', (req, res) => {
+  if (req.headers['x-restore-confirm'] !== 'yes') {
+    return res.status(403).json({ error: 'Missing confirmation header' });
+  }
+  if (!req.body || !Array.isArray(req.body.projects)) {
+    return res.status(400).json({ error: 'Invalid data format' });
+  }
+  writeData(req.body);
+  res.json({ ok: true, count: req.body.projects.length });
+});
 
 app.listen(PORT, () => {
   console.log(`\n✅ Loadboard running at http://localhost:${PORT}\n`);

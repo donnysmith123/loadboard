@@ -272,17 +272,33 @@
           </div>
           <div class="settings-row">
             <div>
-              <div class="settings-label">Data file</div>
-              <div class="settings-desc">Stored in <code style="font-size:11px;background:var(--surface2);padding:2px 5px;border-radius:4px;">data/projects.json</code>. Back it up anytime.</div>
-            </div>
-          </div>
-          <div class="settings-row">
-            <div>
               <div class="settings-label">Export report</div>
               <div class="settings-desc">Generate a comprehensive printable report with all charts and data.</div>
             </div>
             <button class="btn btn-sm" onclick="exportReport()"><i class="ti ti-file-export"></i> Export</button>
           </div>
+        </div>
+
+        <div class="card" style="max-width:500px;margin-top:16px;">
+          <div class="card-title">Data backup &amp; restore</div>
+          <div class="settings-row">
+            <div>
+              <div class="settings-label">Download backup</div>
+              <div class="settings-desc">Save all your project data to a JSON file on your computer. Do this before every update.</div>
+            </div>
+            <button class="btn btn-primary btn-sm" onclick="downloadBackup()"><i class="ti ti-download"></i> Download</button>
+          </div>
+          <div class="settings-row">
+            <div>
+              <div class="settings-label">Restore from backup</div>
+              <div class="settings-desc" style="color:var(--red)"><strong>⚠ Replaces all current data.</strong> Only use a file downloaded from this app.</div>
+            </div>
+            <label class="btn btn-sm" style="cursor:pointer;display:inline-flex;align-items:center;gap:6px;">
+              <i class="ti ti-upload"></i> Restore
+              <input type="file" id="restore-file-input" accept=".json" style="display:none" onchange="restoreFromFile(this)">
+            </label>
+          </div>
+          <div id="restore-status" style="display:none;padding:10px 0 4px;font-size:12px;"></div>
         </div>
       </div>
 
