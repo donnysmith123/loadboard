@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Engineering Loadboard</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.19.0/dist/tabler-icons.min.css">
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+
+<div class="app">
+
+  <!-- Sidebar -->
+  <nav class="sidebar">
+    <div class="sidebar-brand">
+      <div class="sidebar-brand-title">⚡ Loadboard</div>
+      <div class="sidebar-brand-sub">Engineering</div>
+    </div>
+    <div class="sidebar-nav">
+      <button class="nav-item active" data-section="dashboard" onclick="navigate('dashboard')">
+        <i class="ti ti-layout-dashboard"></i> Dashboard
+      </button>
+      <button class="nav-item" data-section="projects" onclick="navigate('projects')">
+        <i class="ti ti-folder"></i> Projects
+      </button>
+      <button class="nav-item" data-section="resources" onclick="navigate('resources')">
+        <i class="ti ti-chart-line"></i> Resource Demand
+      </button>
+      <button class="nav-item" data-section="gantt" onclick="navigate('gantt')">
+        <i class="ti ti-timeline"></i> Timeline
+      </button>
+      <button class="nav-item" data-section="financials" onclick="navigate('financials')">
+        <i class="ti ti-currency-dollar"></i> Financials
+      </button>
+      <button class="nav-item" data-section="settings" onclick="navigate('settings')">
+        <i class="ti ti-settings"></i> Settings
+      </button>
+    </div>
+    <div class="sidebar-footer">
+      <div>Data saved locally · projects.json</div>
+    </div>
+  </nav>
+
+  <!-- Main content -->
+  <div class="main">
+    <div class="topbar">
+      <div class="topbar-title" id="topbar-title">Dashboard</div>
+      <div class="view-range-filter">
+        <span class="view-range-label"><i class="ti ti-calendar-event"></i> Window</span>
+        <input type="month" id="view-from" onchange="applyViewRange()" title="View from">
+        <span class="view-range-sep">→</span>
+        <input type="month" id="view-to" onchange="applyViewRange()" title="View to">
+        <button class="btn btn-xs" onclick="resetViewRange()" title="Show all dates"><i class="ti ti-refresh"></i> All</button>
+      </div>
+      <div class="topbar-actions">
+        <button class="btn btn-sm" onclick="exportReport()"><i class="ti ti-file-export"></i> Export</button>
+        <button class="btn btn-primary" onclick="openAdd()"><i class="ti ti-plus"></i> Add project</button>
+      </div>
+    </div>
+
+    <div class="content">
+
+      <!-- ── Dashboard ──────────────────────────── -->
+      <div id="dashboard" class="section active">
+        <div class="metrics-grid">
+          <div class="metric-card">
+            <div class="metric-label">Total projects</div>
+            <div class="metric-value blue" id="m-total">0</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-label">Active</div>
+            <div class="metric-value green" id="m-active">0</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-label">Peak expected FTEs</div>
+            <div class="metric-value teal" id="m-peak-w">0</div>
+            <div class="metric-sub">Probability-weighted</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-label">Peak best-case FTEs</div>
+            <div class="metric-value blue-dark" id="m-peak-wc">0</div>
+            <div class="metric-sub">If all projects land</div>
+          </div>
+        </div>
+
+        <div class="charts-grid">
+          <div class="card">
+            <div class="card-title">Resource demand over time</div>
+            <div class="capacity-legend">
+              <span><span class="legend-dot" style="background:#1a56a0;"></span>Expected FTEs</span>
+              <span><span class="legend-dot" style="background:#0e7490;"></span>Best-case FTEs</span>
+              <span><span class="legend-dot" style="background:#059669;width:3px;height:14px;border-radius:0;"></span>Team capacity</span>
+            </div>
+            <div class="chart-wrap" style="height:240px;">
+              <canvas id="dashChart"></canvas>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-title">Portfolio — contract value by project</div>
+            <div class="chart-wrap" style="height:280px;">
+              <canvas id="donutChart"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">Project timeline — expected FTEs by project</div>
+          <div class="chart-subtitle">Stacked area · probability-weighted · year labels at January</div>
+          <div class="chart-wrap" style="height:300px;">
+            <canvas id="timelineChart"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Projects ───────────────────────────── -->
+      <div id="projects" class="section">
+        <div class="filter-bar">
+          <div class="filter-search-wrap">
+            <i class="ti ti-search filter-search-icon"></i>
+            <input type="text" id="filter-search" class="filter-search" placeholder="Search projects or clients…" oninput="renderProjects()">
+          </div>
+          <select id="filter-status" class="filter-select" onchange="renderProjects()">
+            <option value="">All statuses</option>
+            <option value="active">Active</option>
+            <option value="probable">Probable</option>
+            <option value="bid">Bid / Pursuit</option>
+            <option value="on-hold">On hold</option>
+            <option value="completed">Completed</option>
+          </select>
+          <select id="filter-discipline" class="filter-select" onchange="renderProjects()">
+            <option value="">All disciplines</option>
+            <option>Distribution</option>
+            <option>Transmission</option>
+            <option>Substation</option>
+          </select>
+          <button class="btn btn-sm" onclick="clearFilters()"><i class="ti ti-x"></i> Clear</button>
+        </div>
+        <div class="card" style="padding:0;overflow:hidden;">
+          <table class="project-table">
+            <thead>
+              <tr>
+                <th data-col="name" class="sortable" onclick="setSort('name')">Project / Client <span class="sort-icon"></span></th>
+                <th data-col="discipline" class="sortable" onclick="setSort('discipline')">Discipline <span class="sort-icon"></span></th>
+                <th data-col="start" class="sortable" onclick="setSort('start')">Dates <span class="sort-icon"></span></th>
+                <th data-col="status" class="sortable" onclick="setSort('status')">Status <span class="sort-icon"></span></th>
+                <th data-col="prob" class="sortable" onclick="setSort('prob')">Prob <span class="sort-icon"></span></th>
+                <th data-col="value" class="sortable" onclick="setSort('value')">Value <span class="sort-icon"></span></th>
+                <th data-col="demand" class="sortable" onclick="setSort('demand')">Res-Months <span class="sort-icon"></span></th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="projects-body"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ── Resource demand ────────────────────── -->
+      <div id="resources" class="section">
+        <div class="card">
+          <div class="card-title">Monthly resource demand</div>
+          <div class="capacity-legend" style="margin-bottom:16px;">
+            <span><span class="legend-dot" style="background:#1a56a0;"></span>Expected FTEs</span>
+            <span><span class="legend-dot" style="background:#059669;"></span>Best-case FTEs</span>
+            <span><span class="legend-dot" style="background:#0e7490;width:3px;height:14px;border-radius:0;"></span>Team capacity</span>
+          </div>
+          <div class="chart-wrap" style="height:360px;">
+            <canvas id="resChart"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Gantt timeline ──────────────────────── -->
+      <div id="gantt" class="section">
+        <div class="card">
+          <div class="card-title">Project timeline</div>
+          <div class="chart-subtitle">Bar opacity = probability · Bar height = avg FTE intensity · Hover for details</div>
+          <div class="gantt-wrap">
+            <div class="gantt-header-row">
+              <div class="gantt-name-col"></div>
+              <div class="gantt-months" id="gantt-header-months"></div>
+            </div>
+            <div id="gantt-bars"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Financials ─────────────────────────── -->
+      <div id="financials" class="section">
+        <div class="metrics-grid" style="margin-bottom:20px;">
+          <div class="metric-card">
+            <div class="metric-label">Portfolio value</div>
+            <div class="metric-value blue" id="fin-total-value">—</div>
+            <div class="metric-sub">Total contract value</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-label">Expected value</div>
+            <div class="metric-value green" id="fin-weighted-value">—</div>
+            <div class="metric-sub">Probability-weighted</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-label">Total res-months</div>
+            <div class="metric-value teal" id="fin-res-months">—</div>
+            <div class="metric-sub">Across all projects</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-label">Est. labor cost</div>
+            <div class="metric-value blue-dark" id="fin-labor-cost">—</div>
+            <div class="metric-sub">At entered FTE rates</div>
+          </div>
+        </div>
+
+        <div class="charts-grid" style="margin-bottom:20px;">
+          <div class="card">
+            <div class="card-title">Contract value by project</div>
+            <div class="chart-wrap" style="height:240px;">
+              <canvas id="valueChart"></canvas>
+            </div>
+          </div>
+          <div class="card fin-info-card">
+            <div class="card-title">How financials are calculated</div>
+            <div class="fin-info-row"><span class="fin-info-label">Est. hours</span><span>Resource-months × 160 hrs/mo</span></div>
+            <div class="fin-info-row"><span class="fin-info-label">Est. labor</span><span>Est. hours × avg FTE rate</span></div>
+            <div class="fin-info-row"><span class="fin-info-label">Margin</span><span>Contract value − Est. labor</span></div>
+            <div class="fin-info-row"><span class="fin-info-label">Margin %</span><span>Margin ÷ Contract value × 100</span></div>
+            <p style="font-size:12px;color:var(--text-muted);margin-top:12px;line-height:1.6;">
+              Enter <strong>contract value</strong>, <strong>margin %</strong>, and <strong>FTE rate</strong> on each project, then use the planning calculator to auto-fill monthly resource schedules.
+            </p>
+          </div>
+        </div>
+
+        <div class="card" style="padding:0;overflow:hidden;">
+          <table class="project-table fin-table">
+            <thead>
+              <tr>
+                <th>Project / Client</th>
+                <th>Status</th>
+                <th style="text-align:right;">Contract Value</th>
+                <th style="text-align:right;">Margin</th>
+                <th style="text-align:right;">FTE Rate</th>
+                <th style="text-align:right;">Res-Months</th>
+                <th style="text-align:right;">Est. Labor</th>
+                <th style="text-align:right;">Actual Margin $</th>
+              </tr>
+            </thead>
+            <tbody id="fin-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ── Settings ───────────────────────────── -->
+      <div id="settings" class="section">
+        <div class="card" style="max-width:500px;">
+          <div class="card-title">Team settings</div>
+          <div class="settings-row">
+            <div>
+              <div class="settings-label">Team capacity</div>
+              <div class="settings-desc">Total FTEs available. Shown as a reference line on charts.</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;">
+              <input type="number" id="capacityInput" min="1" max="200" value="10" style="width:80px;">
+              <button class="btn btn-primary btn-sm" onclick="saveSettings()">Save</button>
+            </div>
+          </div>
+          <div class="settings-row">
+            <div>
+              <div class="settings-label">Data file</div>
+              <div class="settings-desc">Stored in <code style="font-size:11px;background:var(--surface2);padding:2px 5px;border-radius:4px;">data/projects.json</code>. Back it up anytime.</div>
+            </div>
+          </div>
+          <div class="settings-row">
+            <div>
+              <div class="settings-label">Export report</div>
+              <div class="settings-desc">Generate a comprehensive printable report with all charts and data.</div>
+            </div>
+            <button class="btn btn-sm" onclick="exportReport()"><i class="ti ti-file-export"></i> Export</button>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /content -->
+  </div><!-- /main -->
+</div><!-- /app -->
+
+<!-- Project modal -->
+<div class="modal-overlay" id="projectModal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title" id="modal-title">Add project</div>
+      <button class="btn btn-sm" onclick="closeModal()" aria-label="Close"><i class="ti ti-x"></i></button>
+    </div>
+
+    <div class="form-row form-group">
+      <div><label>Project name *</label><input type="text" id="f-name" placeholder="e.g. TX-301 Substation Upgrade"></div>
+      <div><label>Client / Utility</label><input type="text" id="f-client" placeholder="e.g. ERCOT"></div>
+    </div>
+    <div class="form-row-3 form-group">
+      <div><label>Start month</label><input type="month" id="f-start" onchange="refreshMonthInputs();updatePlanner();"></div>
+      <div><label>End month</label><input type="month" id="f-end" onchange="refreshMonthInputs();updatePlanner();"></div>
+      <div><label>Probability (%)</label><input type="number" id="f-prob" min="0" max="100" value="100"></div>
+    </div>
+    <div class="form-row form-group">
+      <div>
+        <label>Status</label>
+        <select id="f-status">
+          <option value="active">Active</option>
+          <option value="probable">Probable</option>
+          <option value="bid">Bid / Pursuit</option>
+          <option value="on-hold">On hold</option>
+          <option value="completed">Completed</option>
+        </select>
+      </div>
+      <div>
+        <label>Discipline</label>
+        <select id="f-discipline">
+          <option>Distribution</option>
+          <option>Transmission</option>
+          <option>Substation</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Planning calculator -->
+    <div class="planner-panel">
+      <div class="planner-header"><i class="ti ti-calculator"></i> Resource planning calculator</div>
+      <div class="form-row form-group" style="margin-bottom:8px;">
+        <div><label>Contract value ($)</label><input type="number" id="f-value" min="0" step="1000" placeholder="e.g. 250000" oninput="updatePlanner()"></div>
+        <div><label>Target margin (%)</label><input type="number" id="f-margin" min="-200" max="99" step="1" placeholder="e.g. 30" oninput="updatePlanner()"></div>
+      </div>
+      <div class="form-row form-group" style="margin-bottom:8px;">
+        <div><label>Avg FTE rate ($/hr)</label><input type="number" id="f-rate" min="0" step="5" placeholder="e.g. 100" oninput="updatePlanner()"></div>
+        <div id="planner-result" class="planner-result">
+          <span class="planner-hint">Enter value, margin, rate + dates to plan FTEs</span>
+        </div>
+      </div>
+      <div id="planner-actions" style="display:none;margin-top:2px;">
+        <button class="btn btn-sm btn-teal" onclick="applyPlannedFTEs()">
+          <i class="ti ti-wand"></i> Apply <span id="planner-ftes-val">0</span> FTEs/month evenly to schedule
+        </button>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label>Notes</label>
+      <textarea id="f-notes" placeholder="Optional project notes, scope summary, etc."></textarea>
+    </div>
+
+    <div class="month-section-title">Monthly resource headcount (FTEs)</div>
+    <div class="month-grid" id="month-inputs"></div>
+
+    <div class="modal-footer">
+      <button class="btn btn-danger" id="modal-delete" onclick="deleteProject()" style="display:none;"><i class="ti ti-trash"></i> Delete</button>
+      <div style="display:flex;gap:8px;margin-left:auto;">
+        <button class="btn" onclick="closeModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="saveProject()"><i class="ti ti-check"></i> Save project</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Hover tooltip for project notes -->
+<div id="project-tooltip" class="project-tooltip"></div>
+
+<div id="toast"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script src="/js/app.js"></script>
+</body>
+</html>
