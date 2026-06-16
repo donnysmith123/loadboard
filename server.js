@@ -57,6 +57,11 @@ app.put('/api/settings', (req, res) => {
 });
 
 
+app.post('/api/import', (req, res) => {
+  writeData(req.body);
+  res.json({ ok: true });
+});
+
 app.listen(PORT, () => {
   console.log(`\n✅ Loadboard running at http://localhost:${PORT}\n`);
 });
