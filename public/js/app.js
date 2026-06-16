@@ -74,15 +74,21 @@ function idxLabel(idx, short) {
   return short ? MONTHS[m] : `${MONTHS[m]} '${String(y).slice(-2)}`;
 }
 
+function getFilteredProjects() {
+  if (!filterDiscipline) return projects;
+  return projects.filter(p => p.discipline === filterDiscipline);
+}
+
 function getViewRange() {
   const now = new Date();
   let mn, mx;
+  const fp = getFilteredProjects();
 
   if (viewFrom) {
     mn = monthToIdx(viewFrom);
   } else {
     mn = now.getFullYear() * 12 + now.getMonth();
-    for (const p of projects) {
+    for (const p of fp) {
       const s = monthToIdx(p.start);
       if (s != null) mn = Math.min(mn, s);
     }
@@ -92,7 +98,7 @@ function getViewRange() {
     mx = monthToIdx(viewTo);
   } else {
     mx = mn + 11;
-    for (const p of projects) {
+    for (const p of fp) {
       const e = monthToIdx(p.end);
       if (e != null) mx = Math.max(mx, e);
     }
@@ -281,7 +287,7 @@ function renderTimelineChart() {
     labels.push((m === 0 || i === mn) ? [MONTHS[m], String(y)] : MONTHS[m]);
   }
 
-  const projectsWithData = projects.filter(p =>
+  const projectsWithData = getFilteredProjects().filter(p =>
     p.start && p.end && Object.values(p.resources || {}).some(v => (v||0) > 0)
   );
 
@@ -334,7 +340,7 @@ function renderProjects() {
   projectFilters.status     = document.getElementById('filter-status')?.value || '';
   projectFilters.discipline = document.getElementById('filter-discipline')?.value || '';
 
-  let filtered = projects.filter(p => {
+  let filtered = getFilteredProjects().filter(p => {
     const q = projectFilters.search.toLowerCase();
     if (q && !p.name.toLowerCase().includes(q) && !(p.client||'').toLowerCase().includes(q)) return false;
     if (projectFilters.status     && p.status     !== projectFilters.status)     return false;
@@ -555,10 +561,11 @@ function renderGantt() {
 
 // ── Financials ─────────────────────────────────────────────────────────────
 function renderFinancials() {
-  const totalValue    = projects.reduce((s,p) => s+(parseFloat(p.value)||0), 0);
-  const weightedValue = projects.reduce((s,p) => s+(parseFloat(p.value)||0)*(p.prob??100)/100, 0);
-  const totalResMonths = projects.reduce((s,p) => s+Object.values(p.resources||{}).reduce((a,b)=>a+(b||0),0), 0);
-  const totalLabor    = projects.reduce((s,p) => {
+  const fp = getFilteredProjects();
+  const totalValue    = fp.reduce((s,p) => s+(parseFloat(p.value)||0), 0);
+  const weightedValue = fp.reduce((s,p) => s+(parseFloat(p.value)||0)*(p.prob??100)/100, 0);
+  const totalResMonths = fp.reduce((s,p) => s+Object.values(p.resources||{}).reduce((a,b)=>a+(b||0),0), 0);
+  const totalLabor    = fp.reduce((s,p) => {
     const rm = Object.values(p.resources||{}).reduce((a,b)=>a+(b||0),0);
     return s + rm * 160 * (parseFloat(p.rate)||0);
   }, 0);
@@ -568,7 +575,7 @@ function renderFinancials() {
   document.getElementById('fin-res-months').textContent     = totalResMonths > 0 ? totalResMonths.toFixed(1) : '—';
   document.getElementById('fin-labor-cost').textContent     = totalLabor    > 0 ? formatMoney(totalLabor)    : '—';
 
-  const rows = projects.map(p => {
+  const rows = fp.map(p => {
     const rm       = Object.values(p.resources||{}).reduce((a,b)=>a+(b||0),0);
     const rate     = parseFloat(p.rate)   || 0;
     const value    = parseFloat(p.value)  || 0;
@@ -592,7 +599,7 @@ function renderFinancials() {
     `<tr><td colspan="8" style="text-align:center;padding:2rem;color:var(--text-muted);">No projects yet.</td></tr>`;
 
   if (valueChart) { valueChart.destroy(); valueChart = null; }
-  const pv = projects.filter(p => parseFloat(p.value) > 0);
+  const pv = fp.filter(p => parseFloat(p.value) > 0);
   if (pv.length) {
     valueChart = new Chart(document.getElementById('valueChart'), {
       type:'bar',
@@ -702,8 +709,9 @@ window.exportReport = function() {
   const [mn, mx] = getViewRange();
   const windowStr = `${idxLabel(mn)} – ${idxLabel(mx)}`;
 
-  const totalValue    = projects.reduce((s,p) => s+(parseFloat(p.value)||0), 0);
-  const weightedValue = projects.reduce((s,p) => s+(parseFloat(p.value)||0)*(p.prob??100)/100, 0);
+  const rp = getFilteredProjects();
+  const totalValue    = rp.reduce((s,p) => s+(parseFloat(p.value)||0), 0);
+  const weightedValue = rp.reduce((s,p) => s+(parseFloat(p.value)||0)*(p.prob??100)/100, 0);
   const weighted = getMonthlyDemand(true), best = getMonthlyDemand(false);
 
   // Monthly resource table
@@ -744,7 +752,7 @@ window.exportReport = function() {
   }).filter(Boolean).join('');
 
   // Project rows
-  const projRows = projects.map(p => {
+  const projRows = rp.map(p => {
     const rm    = Object.values(p.resources||{}).reduce((a,b)=>a+(b||0),0);
     const value = parseFloat(p.value)||0;
     const rate  = parseFloat(p.rate)||0;
@@ -790,11 +798,11 @@ window.exportReport = function() {
 </head>
 <body>
 <h1>⚡ Engineering Loadboard</h1>
-<div class="subtitle">Report generated ${now} · ${projects.length} project${projects.length!==1?'s':''} · Window: ${windowStr}</div>
+<div class="subtitle">Report generated ${now} · ${rp.length} project${rp.length!==1?'s':''}${filterDiscipline?' · '+filterDiscipline:''} · Window: ${windowStr}</div>
 
 <div class="metrics">
-  <div class="metric"><div class="metric-label">Total Projects</div><div class="metric-value" style="color:#1a56a0">${projects.length}</div></div>
-  <div class="metric"><div class="metric-label">Active</div><div class="metric-value" style="color:#065f46">${projects.filter(p=>p.status==='active').length}</div></div>
+  <div class="metric"><div class="metric-label">Total Projects</div><div class="metric-value" style="color:#1a56a0">${rp.length}</div></div>
+  <div class="metric"><div class="metric-label">Active</div><div class="metric-value" style="color:#065f46">${rp.filter(p=>p.status==='active').length}</div></div>
   <div class="metric"><div class="metric-label">Peak Expected FTEs</div><div class="metric-value" style="color:#0e7490">${document.getElementById('m-peak-w').textContent}</div></div>
   <div class="metric"><div class="metric-label">Peak Best-Case FTEs</div><div class="metric-value" style="color:#1a56a0">${document.getElementById('m-peak-wc').textContent}</div></div>
   ${totalValue>0?`<div class="metric"><div class="metric-label">Portfolio Value</div><div class="metric-value" style="color:#065f46">${formatMoney(totalValue)}</div></div>`:''}
