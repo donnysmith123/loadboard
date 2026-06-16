@@ -282,6 +282,25 @@
   </div><!-- /main -->
 </div><!-- /app -->
 
+<!-- Mobile bottom nav -->
+<nav class="mobile-nav">
+  <button class="mobile-nav-item active" data-section="dashboard" onclick="navigate('dashboard')">
+    <i class="ti ti-layout-dashboard"></i><span>Dashboard</span>
+  </button>
+  <button class="mobile-nav-item" data-section="projects" onclick="navigate('projects')">
+    <i class="ti ti-folder"></i><span>Projects</span>
+  </button>
+  <button class="mobile-nav-item" data-section="resources" onclick="navigate('resources')">
+    <i class="ti ti-chart-line"></i><span>Demand</span>
+  </button>
+  <button class="mobile-nav-item" data-section="gantt" onclick="navigate('gantt')">
+    <i class="ti ti-timeline"></i><span>Timeline</span>
+  </button>
+  <button class="mobile-nav-item" data-section="financials" onclick="navigate('financials')">
+    <i class="ti ti-currency-dollar"></i><span>Financials</span>
+  </button>
+</nav>
+
 <!-- Project modal -->
 <div class="modal-overlay" id="projectModal">
   <div class="modal">

@@ -155,7 +155,7 @@ window.resetViewRange = function() {
 
 // ── Navigation ────────────────────────────────────────────────────────────
 window.navigate = function(id) {
-  document.querySelectorAll('.nav-item').forEach(el => el.classList.toggle('active', el.dataset.section === id));
+  document.querySelectorAll('.nav-item, .mobile-nav-item').forEach(el => el.classList.toggle('active', el.dataset.section === id));
   document.querySelectorAll('.section').forEach(el => el.classList.toggle('active', el.id === id));
   document.getElementById('topbar-title').textContent = SECTION_TITLES[id] || id;
   activeSection = id;
