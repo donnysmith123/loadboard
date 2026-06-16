@@ -53,6 +53,14 @@
         <input type="month" id="view-to" onchange="applyViewRange()" title="View to">
         <button class="btn btn-xs" onclick="resetViewRange()" title="Show all dates"><i class="ti ti-refresh"></i> All</button>
       </div>
+      <div class="discipline-filter">
+        <select id="global-discipline" onchange="applyDisciplineFilter()">
+          <option value="">All Disciplines</option>
+          <option value="Distribution">Distribution</option>
+          <option value="Transmission">Transmission</option>
+          <option value="Substation">Substation</option>
+        </select>
+      </div>
       <div class="topbar-actions">
         <button class="btn btn-sm" onclick="exportReport()"><i class="ti ti-file-export"></i> Export</button>
         <button class="btn btn-primary" onclick="openAdd()"><i class="ti ti-plus"></i> Add project</button>

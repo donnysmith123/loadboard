@@ -7,6 +7,7 @@ let dashChart = null, donutChart = null, timelineChart = null, resChart = null, 
 let projectSort = { col: null, dir: 1 };
 let projectFilters = { search: '', status: '', discipline: '' };
 let viewFrom = null, viewTo = null;
+let filterDiscipline = '';
 
 // ── Constants ─────────────────────────────────────────────────────────────
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -103,6 +104,7 @@ function getViewRange() {
 function getProjectsInView() {
   const [mn, mx] = getViewRange();
   return projects.filter(p => {
+    if (filterDiscipline && p.discipline !== filterDiscipline) return false;
     const s = monthToIdx(p.start), e = monthToIdx(p.end);
     if (s == null || e == null) return false;
     return !(e < mn || s > mx);
@@ -115,6 +117,7 @@ function getMonthlyDemand(weighted) {
   const result = {};
   for (let i = mn; i <= mx; i++) result[i] = 0;
   for (const p of projects) {
+    if (filterDiscipline && p.discipline !== filterDiscipline) continue;
     const factor = weighted ? (p.prob ?? 100) / 100 : 1;
     for (const [ym, val] of Object.entries(p.resources || {})) {
       const idx = monthToIdx(ym);
@@ -153,6 +156,11 @@ window.resetViewRange = function() {
   renderAll();
 };
 
+window.applyDisciplineFilter = function() {
+  filterDiscipline = document.getElementById('global-discipline').value;
+  renderAll();
+};
+
 // ── Navigation ────────────────────────────────────────────────────────────
 window.navigate = function(id) {
   document.querySelectorAll('.nav-item, .mobile-nav-item').forEach(el => el.classList.toggle('active', el.dataset.section === id));
@@ -182,8 +190,9 @@ function updateMetrics() {
   const peakW  = Math.max(0, ...Object.values(weighted));
   const peakBC = Math.max(0, ...Object.values(best));
   const inView = getProjectsInView();
-  document.getElementById('m-total').textContent  = projects.length;
-  document.getElementById('m-active').textContent = projects.filter(p => p.status === 'active').length;
+  const allFiltered = filterDiscipline ? projects.filter(p => p.discipline === filterDiscipline) : projects;
+  document.getElementById('m-total').textContent  = allFiltered.length;
+  document.getElementById('m-active').textContent = allFiltered.filter(p => p.status === 'active').length;
   document.getElementById('m-peak-w').textContent  = peakW.toFixed(1);
   document.getElementById('m-peak-wc').textContent = peakBC.toFixed(1);
 }
