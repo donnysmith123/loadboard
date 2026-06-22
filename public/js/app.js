@@ -938,71 +938,181 @@ window.exportReport = function() {
 <title>Engineering Loadboard — Report ${now}</title>
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
-  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#0f1b2d;background:#fff;padding:40px;font-size:12px;line-height:1.45}
-  h1{font-size:20px;font-weight:700;color:#0f2744}
-  .subtitle{color:#4a6080;font-size:11px;margin:3px 0 24px}
-  h2{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#1a56a0;margin:24px 0 10px;padding-bottom:5px;border-bottom:2px solid #dbeafe}
-  .metrics{display:flex;gap:10px;margin-bottom:20px;flex-wrap:wrap}
-  .metric{border:1px solid #dde8f5;border-radius:8px;padding:12px 16px;flex:1;min-width:100px;background:#f8fbff}
-  .metric-label{font-size:9px;text-transform:uppercase;letter-spacing:.06em;color:#4a6080;margin-bottom:3px}
-  .metric-value{font-size:20px;font-weight:700}
-  .charts-row{display:grid;grid-template-columns:2fr 1fr;gap:14px;margin-bottom:14px}
-  img.chart{width:100%;border:1px solid #e8eff7;border-radius:8px;display:block}
-  table{width:100%;border-collapse:collapse;font-size:11px;margin-bottom:4px}
-  th{text-align:left;padding:6px 8px;background:#f0f5fb;border-bottom:2px solid #dde8f5;font-size:9px;text-transform:uppercase;letter-spacing:.05em;color:#4a6080;font-weight:700}
-  td{padding:6px 8px;border-bottom:1px solid #eef2f7;vertical-align:top}
+  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#0f1b2d;background:#fff;font-size:11px;line-height:1.5;print-color-adjust:exact;-webkit-print-color-adjust:exact}
+  .page{padding:28px 32px;max-width:100%}
+  h1{font-size:22px;font-weight:800;color:#0f2744;letter-spacing:-0.3px}
+  .subtitle{color:#4a6080;font-size:10px;margin:4px 0 20px;letter-spacing:0.02em}
+  h2{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:#1a56a0;margin:22px 0 10px;padding-bottom:6px;border-bottom:2px solid #dbeafe;page-break-after:avoid}
+  /* Metrics */
+  .metrics{display:flex;gap:8px;margin-bottom:18px;flex-wrap:nowrap}
+  .metric{border:1px solid #dde8f5;border-radius:6px;padding:10px 14px;flex:1;background:#f8fbff;min-width:0}
+  .metric-label{font-size:8px;text-transform:uppercase;letter-spacing:.07em;color:#4a6080;margin-bottom:2px;white-space:nowrap}
+  .metric-value{font-size:18px;font-weight:800;white-space:nowrap}
+  /* Charts */
+  .chart-full{width:100%;display:block;border:1px solid #e8eff7;border-radius:6px;margin-bottom:4px}
+  .charts-2col{display:grid;grid-template-columns:2fr 1fr;gap:12px;align-items:start;margin-bottom:4px}
+  .chart-caption{font-size:9px;color:#8099b3;margin-bottom:12px}
+  /* Gantt */
+  .gantt-wrap{width:100%;margin-bottom:4px}
+  .gantt-head{display:flex;margin-left:160px;margin-bottom:3px}
+  .gantt-hlabel{flex:1;font-size:8px;color:#8099b3;text-align:center;padding:0 1px;line-height:1.3;white-space:nowrap;overflow:hidden}
+  .gantt-hy{border-left:1px dashed #c7d8ed;color:#1a56a0;font-weight:700}
+  .gantt-row{display:flex;align-items:center;margin-bottom:4px;min-height:18px}
+  .gantt-name{width:160px;min-width:160px;font-size:9px;color:#1a1a2e;padding-right:8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:1.3}
+  .gantt-track{flex:1;background:#eef2f7;border-radius:3px;height:14px;position:relative;overflow:hidden}
+  .gantt-bar{height:100%;border-radius:3px;position:absolute;display:flex;align-items:center;padding:0 4px;font-size:8px;font-weight:700;color:rgba(255,255,255,0.95);white-space:nowrap;overflow:hidden}
+  /* Tables */
+  table{width:100%;border-collapse:collapse;font-size:10px;margin-bottom:4px;table-layout:fixed}
+  th{text-align:left;padding:5px 7px;background:#f0f5fb;border-bottom:2px solid #dde8f5;font-size:8px;text-transform:uppercase;letter-spacing:.05em;color:#4a6080;font-weight:700;white-space:nowrap;overflow:hidden}
+  td{padding:5px 7px;border-bottom:1px solid #eef2f7;vertical-align:middle;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   tr:last-child td{border-bottom:none}
-  .footer{margin-top:32px;padding-top:12px;border-top:1px solid #dde8f5;font-size:10px;color:#8099b3;display:flex;justify-content:space-between}
-  @media print{body{padding:20px}@page{margin:1.5cm}}
+  tr:nth-child(even) td{background:#fafcff}
+  .badge{display:inline-block;padding:1px 6px;border-radius:10px;font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:.04em}
+  .badge-green{background:#d1fae5;color:#065f46}
+  .badge-teal{background:#cffafe;color:#0e7490}
+  .badge-blue{background:#dbeafe;color:#1e40af}
+  .badge-gray{background:#f3f4f6;color:#6b7280}
+  /* Resource table */
+  .res-table th:first-child,.res-table td:first-child{width:80px}
+  .over{color:#9b1c1c;font-weight:700}
+  /* Page breaks */
+  .pb{page-break-before:always;padding-top:28px}
+  .no-break{page-break-inside:avoid}
+  /* Footer */
+  .footer{margin-top:24px;padding-top:10px;border-top:1px solid #dde8f5;font-size:9px;color:#8099b3;display:flex;justify-content:space-between}
+  @page{margin:1.2cm;size:letter landscape}
+  @media print{body{font-size:10px}.page{padding:0}}
 </style>
 </head>
 <body>
+<div class="page">
+
 <h1>⚡ Engineering Loadboard</h1>
-<div class="subtitle">Report generated ${now} · ${rp.length} project${rp.length!==1?'s':''}${filterDiscipline?' · '+filterDiscipline:''} · Window: ${windowStr}</div>
+<div class="subtitle">
+  Generated ${now}${filterDiscipline?' &nbsp;·&nbsp; '+filterDiscipline+' discipline':''} &nbsp;·&nbsp; Window: ${windowStr} &nbsp;·&nbsp; ${rp.length} project${rp.length!==1?'s':''}
+</div>
 
 <div class="metrics">
-  <div class="metric"><div class="metric-label">Total Projects</div><div class="metric-value" style="color:#1a56a0">${rp.length}</div></div>
+  <div class="metric"><div class="metric-label">Projects</div><div class="metric-value" style="color:#1a56a0">${rp.length}</div></div>
   <div class="metric"><div class="metric-label">Active</div><div class="metric-value" style="color:#065f46">${rp.filter(p=>p.status==='active').length}</div></div>
-  <div class="metric"><div class="metric-label">Peak Expected FTEs</div><div class="metric-value" style="color:#0e7490">${document.getElementById('m-peak-w').textContent}</div></div>
-  <div class="metric"><div class="metric-label">Peak Best-Case FTEs</div><div class="metric-value" style="color:#1a56a0">${document.getElementById('m-peak-wc').textContent}</div></div>
+  <div class="metric"><div class="metric-label">Peak Expected FTE</div><div class="metric-value" style="color:#0e7490">${document.getElementById('m-peak-w').textContent}</div></div>
+  <div class="metric"><div class="metric-label">Peak Best-Case FTE</div><div class="metric-value" style="color:#1a56a0">${document.getElementById('m-peak-wc').textContent}</div></div>
   ${totalValue>0?`<div class="metric"><div class="metric-label">Portfolio Value</div><div class="metric-value" style="color:#065f46">${formatMoney(totalValue)}</div></div>`:''}
   ${weightedValue>0?`<div class="metric"><div class="metric-label">Expected Value</div><div class="metric-value" style="color:#0e7490">${formatMoney(weightedValue)}</div></div>`:''}
+  <div class="metric"><div class="metric-label">Team Capacity</div><div class="metric-value" style="color:#374151">${teamCapacity} FTE</div></div>
 </div>
 
-<h2>Resource Demand &amp; Portfolio Breakdown</h2>
-<div class="charts-row">
-  ${dashImg?`<img class="chart" src="${dashImg}" alt="Resource demand">`:'<p style="color:#999">Render on dashboard to capture</p>'}
-  ${donutImg?`<img class="chart" src="${donutImg}" alt="Portfolio breakdown">`:''}
+<h2>Resource Demand &amp; Portfolio Value</h2>
+<div class="charts-2col">
+  ${dashImg?`<img class="chart-full" src="${dashImg}" alt="Resource demand">`:''}
+  ${donutImg?`<img class="chart-full" src="${donutImg}" alt="Portfolio">`:''}
 </div>
+<div class="chart-caption">Left: Monthly FTE demand (expected vs best-case) with team capacity line &nbsp;·&nbsp; Right: Portfolio breakdown by contract value</div>
 
 ${timelineImg?`
 <h2>Project Timeline — Expected FTEs by Project</h2>
-<p style="font-size:10px;color:#4a6080;margin-bottom:8px">Stacked bars · probability-weighted · dashed red line = team capacity</p>
-<img class="chart" src="${timelineImg}" alt="Timeline" style="margin-bottom:16px;width:100%;max-height:320px;object-fit:contain;">
+<img class="chart-full" src="${timelineImg}" alt="Timeline" style="height:260px;object-fit:fill;">
+<div class="chart-caption">Stacked bars = probability-weighted FTE contribution per project · Red dashed = team capacity</div>
 `:''}
 
 <h2>Project Gantt</h2>
-${ganttHeader}${ganttBars||'<p style="color:#666;font-size:11px">No projects in view window.</p>'}
+<div class="gantt-wrap">
+  <div class="gantt-head">
+    ${Array.from({length: mx-mn+1}, (_,k) => {
+      const m=(mn+k)%12, y=Math.floor((mn+k)/12);
+      const isJan = m===0 && k>0;
+      return `<div class="gantt-hlabel${isJan?' gantt-hy':''}">${isJan?String(y)+'<br>':''}`+MONTHS[m]+`</div>`;
+    }).join('')}
+  </div>
+  ${inView.map((p,pi) => {
+    const s=monthToIdx(p.start), e=monthToIdx(p.end);
+    if(!s||!e) return '';
+    const cnt=mx-mn+1;
+    const left=Math.max(0,(s-mn)/cnt*100).toFixed(1);
+    const w=Math.max(0.5,Math.min(100,(e-mn+1)/cnt*100)-parseFloat(left)).toFixed(1);
+    const color=TIMELINE_COLORS[pi%TIMELINE_COLORS.length];
+    const opacity=((p.prob??100)/100).toFixed(2);
+    const label=projectLabel(p);
+    return `<div class="gantt-row no-break">
+      <div class="gantt-name" title="${label}">${label}</div>
+      <div class="gantt-track">
+        <div class="gantt-bar" style="left:${left}%;width:${w}%;background:${color};opacity:${opacity};">${parseFloat(w)>8?label:''}</div>
+      </div>
+    </div>`;
+  }).filter(Boolean).join('')}
+  ${!inView.length?'<p style="color:#666;font-size:10px;padding:8px 0">No projects in current view window.</p>':''}
+</div>
 
+<div class="pb">
 <h2>Monthly Resource Demand</h2>
-<table>
-  <thead><tr><th>Month</th><th style="text-align:right">Expected FTEs</th><th style="text-align:right">Best-case FTEs</th><th style="text-align:right">Team Capacity</th></tr></thead>
-  <tbody>${resRows}</tbody>
+<table class="res-table" style="max-width:520px">
+  <thead><tr>
+    <th>Month</th>
+    <th style="text-align:right">Expected FTE</th>
+    <th style="text-align:right">Best-Case FTE</th>
+    <th style="text-align:right">Capacity</th>
+    <th style="text-align:right">Headroom</th>
+  </tr></thead>
+  <tbody>${Array.from({length:mx-mn+1},(_,k)=>{
+    const i=mn+k;
+    const w=+(weighted[i]||0).toFixed(1), bc=+(best[i]||0).toFixed(1);
+    const over=bc>teamCapacity;
+    const headroom=(teamCapacity-bc).toFixed(1);
+    return `<tr>
+      <td style="font-weight:600">${idxLabel(i)}</td>
+      <td style="text-align:right">${w}</td>
+      <td style="text-align:right" class="${over?'over':''}">${bc}${over?' ⚠':''}</td>
+      <td style="text-align:right;color:#6b7280">${teamCapacity}</td>
+      <td style="text-align:right;color:${over?'#9b1c1c':'#065f46'};font-weight:600">${over?headroom:'+'+headroom}</td>
+    </tr>`;
+  }).join('')}</tbody>
 </table>
 
-<h2>Projects</h2>
+<h2 style="margin-top:24px">Project Details</h2>
 <table>
   <thead><tr>
-    <th>Project / Client</th><th>Discipline</th><th>Dates</th><th>Status</th>
-    <th style="text-align:right">Prob</th><th style="text-align:right">Res-Mo</th>
-    <th style="text-align:right">Value</th><th style="text-align:right">Est. Labor</th><th style="text-align:right">Margin</th>
+    <th style="width:22%">Project / Client</th>
+    <th style="width:11%">Discipline</th>
+    <th style="width:12%">Dates</th>
+    <th style="width:8%">Status</th>
+    <th style="width:5%;text-align:right">Prob</th>
+    <th style="width:6%;text-align:right">Res-Mo</th>
+    <th style="width:9%;text-align:right">Value</th>
+    <th style="width:9%;text-align:right">Est. Labor</th>
+    <th style="width:9%;text-align:right">Margin $</th>
+    <th style="width:9%;text-align:right">Margin %</th>
   </tr></thead>
-  <tbody>${projRows}</tbody>
+  <tbody>${rp.map(p=>{
+    const rm=Object.values(p.resources||{}).reduce((a,b)=>a+(b||0),0);
+    const value=parseFloat(p.value)||0;
+    const rate=parseFloat(p.rate)||0;
+    const labor=Math.round(rm*160)*rate;
+    const marginDol=value>0&&labor>0?value-labor:null;
+    const marginPct=p.margin!=null?parseFloat(p.margin):null;
+    const mColor=marginDol!=null?(marginDol>=0?'#065f46':'#9b1c1c'):'';
+    const badge={active:'badge-green',probable:'badge-teal',bid:'badge-blue','on-hold':'badge-gray',completed:'badge-gray'}[p.status]||'badge-gray';
+    return `<tr>
+      <td style="font-weight:600">${p.name}${p.client?`<span style="display:block;font-weight:400;color:#4a6080;font-size:9px">${p.client}</span>`:''}
+      </td>
+      <td>${p.discipline||'—'}</td>
+      <td style="font-size:9px">${p.start||'—'}<br>${p.end||'—'}</td>
+      <td><span class="badge ${badge}">${STATUS_LABEL[p.status]||p.status}</span></td>
+      <td style="text-align:right">${p.prob??100}%</td>
+      <td style="text-align:right">${rm>0?rm.toFixed(1):'—'}</td>
+      <td style="text-align:right">${value>0?formatMoney(value):'—'}</td>
+      <td style="text-align:right">${labor>0?formatMoney(labor):'—'}</td>
+      <td style="text-align:right;font-weight:600;color:${mColor}">${marginDol!=null?formatMoney(marginDol):'—'}</td>
+      <td style="text-align:right;color:${mColor}">${marginPct!=null?marginPct+'%':'—'}</td>
+    </tr>`;
+  }).join('')}</tbody>
 </table>
+</div>
 
 <div class="footer">
-  <span>⚡ Engineering Loadboard</span>
+  <span>⚡ Engineering Loadboard &nbsp;·&nbsp; Engineering Resource Management</span>
   <span>Exported ${now}</span>
+</div>
+
 </div>
 </body>
 </html>`;
