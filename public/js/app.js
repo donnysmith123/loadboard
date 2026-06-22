@@ -205,6 +205,8 @@ function renderSection(id) {
 function renderAll() {
   updateMetrics();
   renderSection(activeSection);
+  // Keep timeline in sync regardless of which tab is active
+  if (activeSection !== 'dashboard') renderTimelineChart();
 }
 
 // ── Metrics ───────────────────────────────────────────────────────────────
@@ -315,6 +317,18 @@ function renderTimelineChart() {
   if (timelineChart) { timelineChart.destroy(); timelineChart = null; }
   if (!projectsWithData.length) return;
 
+  // Calculate actual max stacked value to set y-axis tightly
+  let maxStacked = 0;
+  for (let i = mn; i <= mx; i++) {
+    const ym = idxToYM(i);
+    let total = 0;
+    for (const p of projectsWithData) {
+      total += ((p.resources || {})[ym] || 0) * (p.prob ?? 100) / 100;
+    }
+    maxStacked = Math.max(maxStacked, total);
+  }
+  const yMax = Math.ceil(Math.max(teamCapacity, maxStacked) * 1.18);
+
   const capData = [];
   for (let i = mn; i <= mx; i++) capData.push(teamCapacity);
 
@@ -322,7 +336,7 @@ function renderTimelineChart() {
     const color = TIMELINE_COLORS[pi % TIMELINE_COLORS.length];
     const data = [];
     for (let i = mn; i <= mx; i++) {
-      const ym  = idxToYM(i);
+      const ym = idxToYM(i);
       const val = ((p.resources || {})[ym] || 0) * (p.prob ?? 100) / 100;
       data.push(+val.toFixed(2));
     }
@@ -330,34 +344,36 @@ function renderTimelineChart() {
       type: 'bar',
       label: projectLabel(p),
       data,
-      backgroundColor: color + 'cc',
+      backgroundColor: color + 'dd',
       borderColor: color,
       borderWidth: 1,
       borderRadius: 2,
-      stack: 'demand',
       datalabels: {
-        display: ctx => ctx.parsed.y >= 0.4,
-        color: '#fff',
-        font: { size: 9, weight: '700' },
+        display: ctx => ctx.parsed.y >= 0.5,
         formatter: v => v.toFixed(1),
         anchor: 'center',
         align: 'center',
-        clamp: true,
+        color: '#fff',
+        font: { size: 9, weight: '700' },
+        backgroundColor: color + 'cc',
+        borderRadius: 3,
+        padding: { top: 2, bottom: 2, left: 4, right: 4 },
+        textStrokeColor: 'rgba(0,0,0,0.5)',
+        textStrokeWidth: 2,
       }
     };
   });
 
   const capacityDataset = {
     type: 'line',
-    label: `Team Capacity (${teamCapacity})`,
+    label: '──── Capacity',
     data: capData,
     borderColor: '#ef4444',
-    borderWidth: 2.5,
+    borderWidth: 2,
     borderDash: [6, 4],
     pointRadius: 0,
     pointHoverRadius: 0,
     fill: false,
-    stack: undefined,
     order: -1,
     datalabels: { display: false }
   };
@@ -371,12 +387,17 @@ function renderTimelineChart() {
       plugins: {
         legend: {
           position: 'bottom',
-          labels: { font: { size: 11 }, boxWidth: 14, padding: 10, usePointStyle: false }
+          labels: {
+            font: { size: 11 },
+            boxWidth: 14,
+            padding: 10,
+            filter: item => item.text !== '──── Capacity'
+          }
         },
         tooltip: {
           callbacks: {
             label: ctx => ctx.dataset.type === 'line'
-              ? ` ${ctx.dataset.label}`
+              ? ` Team capacity: ${teamCapacity} FTE`
               : ` ${ctx.dataset.label}: ${ctx.parsed.y.toFixed(1)} FTE`
           }
         },
@@ -391,6 +412,7 @@ function renderTimelineChart() {
         y: {
           stacked: true,
           beginAtZero: true,
+          max: yMax,
           grid: { color: 'rgba(0,0,0,0.06)' },
           ticks: { font: { size: 11 } },
           title: { display: true, text: 'Expected FTEs', font: { size: 11 } }
