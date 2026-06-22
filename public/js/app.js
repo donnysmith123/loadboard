@@ -314,7 +314,10 @@ function renderTimelineChart() {
     p.start && p.end && Object.values(p.resources || {}).some(v => (v||0) > 0)
   );
 
-  if (timelineChart) { timelineChart.destroy(); timelineChart = null; }
+  // Always destroy any existing instance on the canvas (handles variable sync issues)
+  const existingTimeline = Chart.getChart('timelineChart');
+  if (existingTimeline) existingTimeline.destroy();
+  timelineChart = null;
   if (!projectsWithData.length) return;
 
   // Calculate actual max stacked value to set y-axis tightly
