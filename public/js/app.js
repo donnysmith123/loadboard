@@ -15,11 +15,29 @@ const STATUS_BADGE  = { active:'badge-green', probable:'badge-teal', bid:'badge-
 const STATUS_LABEL  = { active:'Active', probable:'Probable', bid:'Bid', 'on-hold':'On Hold', completed:'Completed' };
 const SECTION_TITLES = { dashboard:'Dashboard', projects:'Projects', resources:'Resource Demand', gantt:'Timeline', financials:'Financials', settings:'Settings' };
 
-// Blue-green palette
+// Blue-green palette for donuts, financials, resource charts
 const BAR_COLORS = [
   '#1a56a0','#0e7490','#059669','#2563eb',
   '#0d9488','#1d4ed8','#047857','#0284c7',
   '#065f46','#0f766e','#1e40af','#0369a1'
+];
+
+// High-contrast categorical palette for timeline (maximally distinct)
+const TIMELINE_COLORS = [
+  '#2563eb', // vivid blue
+  '#dc2626', // vivid red
+  '#16a34a', // vivid green
+  '#ea580c', // vivid orange
+  '#7c3aed', // vivid purple
+  '#0891b2', // vivid cyan
+  '#ca8a04', // vivid amber
+  '#be185d', // vivid pink/rose
+  '#0f766e', // dark teal
+  '#b45309', // dark amber/brown
+  '#4f46e5', // indigo
+  '#15803d', // dark green
+  '#c2410c', // burnt orange
+  '#6d28d9', // deep violet
 ];
 
 // ── API helpers ───────────────────────────────────────────────────────────
@@ -278,7 +296,10 @@ function renderPortfolioDonut() {
   });
 }
 
-// ── Stacked area timeline ─────────────────────────────────────────────────
+// ── Stacked bar timeline ──────────────────────────────────────────────────
+// Register datalabels plugin globally (only once)
+if (window.ChartDataLabels) Chart.register(ChartDataLabels);
+
 function renderTimelineChart() {
   const [mn, mx] = getViewRange();
   const labels = [];
@@ -294,29 +315,99 @@ function renderTimelineChart() {
   if (timelineChart) { timelineChart.destroy(); timelineChart = null; }
   if (!projectsWithData.length) return;
 
-  const datasets = projectsWithData.map((p, pi) => {
-    const color = BAR_COLORS[pi % BAR_COLORS.length];
+  const capData = [];
+  for (let i = mn; i <= mx; i++) capData.push(teamCapacity);
+
+  const barDatasets = projectsWithData.map((p, pi) => {
+    const color = TIMELINE_COLORS[pi % TIMELINE_COLORS.length];
     const data = [];
     for (let i = mn; i <= mx; i++) {
       const ym  = idxToYM(i);
       const val = ((p.resources || {})[ym] || 0) * (p.prob ?? 100) / 100;
       data.push(+val.toFixed(2));
     }
-    return { label:projectLabel(p), data, backgroundColor:color+'aa', borderColor:color, borderWidth:1.5, fill:true, tension:0.2, pointRadius:0, pointHoverRadius:4 };
+    return {
+      type: 'bar',
+      label: projectLabel(p),
+      data,
+      backgroundColor: color + 'cc',
+      borderColor: color,
+      borderWidth: 1,
+      borderRadius: 2,
+      stack: 'demand',
+      datalabels: {
+        display: ctx => ctx.parsed.y >= 0.4,
+        color: '#fff',
+        font: { size: 9, weight: '700' },
+        formatter: v => v.toFixed(1),
+        anchor: 'center',
+        align: 'center',
+        clamp: true,
+      }
+    };
   });
 
+  const capacityDataset = {
+    type: 'line',
+    label: `Team Capacity (${teamCapacity})`,
+    data: capData,
+    borderColor: '#ef4444',
+    borderWidth: 2.5,
+    borderDash: [6, 4],
+    pointRadius: 0,
+    pointHoverRadius: 0,
+    fill: false,
+    stack: undefined,
+    order: -1,
+    datalabels: { display: false }
+  };
+
   timelineChart = new Chart(document.getElementById('timelineChart'), {
-    type:'line',
-    data:{ labels, datasets },
-    options:{
-      responsive:true, maintainAspectRatio:false,
-      interaction:{ mode:'index', intersect:false },
-      plugins:{ legend:{ position:'bottom', labels:{ font:{size:11}, boxWidth:12, padding:8, usePointStyle:true } } },
-      scales:{
-        x:{ stacked:true, ticks:{ autoSkip:false, maxRotation:0, font:{size:10} }, grid:{ color:'rgba(0,0,0,0.04)' } },
-        y:{ stacked:true, beginAtZero:true, grid:{ color:'rgba(0,0,0,0.04)' }, ticks:{ font:{size:11} }, title:{ display:true, text:'Expected FTEs', font:{size:11} } }
+    data: { labels, datasets: [...barDatasets, capacityDataset] },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: {
+          position: 'bottom',
+          labels: { font: { size: 11 }, boxWidth: 14, padding: 10, usePointStyle: false }
+        },
+        tooltip: {
+          callbacks: {
+            label: ctx => ctx.dataset.type === 'line'
+              ? ` ${ctx.dataset.label}`
+              : ` ${ctx.dataset.label}: ${ctx.parsed.y.toFixed(1)} FTE`
+          }
+        },
+        datalabels: {}
+      },
+      scales: {
+        x: {
+          stacked: true,
+          ticks: { autoSkip: false, maxRotation: 0, font: { size: 10 } },
+          grid: { color: 'rgba(0,0,0,0.04)' }
+        },
+        y: {
+          stacked: true,
+          beginAtZero: true,
+          grid: { color: 'rgba(0,0,0,0.06)' },
+          ticks: { font: { size: 11 } },
+          title: { display: true, text: 'Expected FTEs', font: { size: 11 } }
+        }
       }
-    }
+    },
+    plugins: [{
+      id: 'whiteBackground',
+      beforeDraw: chart => {
+        const ctx = chart.canvas.getContext('2d');
+        ctx.save();
+        ctx.globalCompositeOperation = 'destination-over';
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, chart.width, chart.height);
+        ctx.restore();
+      }
+    }]
   });
 }
 
@@ -862,9 +953,13 @@ window.exportReport = function() {
   ${donutImg?`<img class="chart" src="${donutImg}" alt="Portfolio breakdown">`:''}
 </div>
 
-${timelineImg?`<h2>Project Timeline — Stacked FTE Area</h2><img class="chart" src="${timelineImg}" alt="Timeline" style="margin-bottom:12px">`:''}
+${timelineImg?`
+<h2>Project Timeline — Expected FTEs by Project</h2>
+<p style="font-size:10px;color:#4a6080;margin-bottom:8px">Stacked bars · probability-weighted · dashed red line = team capacity</p>
+<img class="chart" src="${timelineImg}" alt="Timeline" style="margin-bottom:16px;width:100%;max-height:320px;object-fit:contain;">
+`:''}
 
-<h2>Project Timeline — Gantt</h2>
+<h2>Project Gantt</h2>
 ${ganttHeader}${ganttBars||'<p style="color:#666;font-size:11px">No projects in view window.</p>'}
 
 <h2>Monthly Resource Demand</h2>
