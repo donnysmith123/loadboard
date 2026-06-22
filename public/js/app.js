@@ -299,8 +299,6 @@ function renderPortfolioDonut() {
 }
 
 // ── Stacked bar timeline ──────────────────────────────────────────────────
-// Register datalabels plugin globally (only once)
-if (window.ChartDataLabels) Chart.register(ChartDataLabels);
 
 function renderTimelineChart() {
   const [mn, mx] = getViewRange();
@@ -422,7 +420,9 @@ function renderTimelineChart() {
         }
       }
     },
-    plugins: [{
+    plugins: [
+    window.ChartDataLabels || {},
+    {
       id: 'whiteBackground',
       beforeDraw: chart => {
         const ctx = chart.canvas.getContext('2d');
@@ -432,7 +432,8 @@ function renderTimelineChart() {
         ctx.fillRect(0, 0, chart.width, chart.height);
         ctx.restore();
       }
-    }]
+    }
+    ]
   });
 }
 
