@@ -1,7 +1,9 @@
 // ── State ─────────────────────────────────────────────────────────────────
 let projects = [];
-let teamCapacity = 10;
+let teamCapacity = { Distribution: 3, Transmission: 3, Substation: 3 };
+let darkMode = false;
 let editingId = null;
+let editSegments = [];           // working copy of segments while modal is open
 let activeSection = 'dashboard';
 let dashChart = null, donutChart = null, timelineChart = null, resChart = null, valueChart = null;
 let projectSort = { col: null, dir: 1 };
@@ -10,6 +12,8 @@ let viewFrom = null, viewTo = null;
 let filterDiscipline = '';
 
 // ── Constants ─────────────────────────────────────────────────────────────
+const DISCIPLINES = ['Distribution', 'Transmission', 'Substation'];
+const DISCIPLINE_COLORS = { Distribution: '#2563eb', Transmission: '#ea580c', Substation: '#0e7490' };
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const STATUS_BADGE  = { active:'badge-green', probable:'badge-teal', bid:'badge-blue', 'on-hold':'badge-gray', completed:'badge-gray' };
 const STATUS_LABEL  = { active:'Active', probable:'Probable', bid:'Bid', 'on-hold':'On Hold', completed:'Completed' };
@@ -70,11 +74,39 @@ async function loadAll() {
   try {
     const data = await api('GET', '/api/projects');
     projects = data.projects || [];
-    teamCapacity = data.teamCapacity ?? 10;
-    document.getElementById('capacityInput').value = teamCapacity;
+    teamCapacity = normalizeCapacity(data.teamCapacity);
+    darkMode = !!data.darkMode;
+    applyDarkMode();
+    syncSettingsInputs();
     document.getElementById('server-error')?.remove();
     renderAll();
   } catch(e) {}
+}
+
+// Accept either a number (legacy) or per-discipline object.
+function normalizeCapacity(tc) {
+  if (typeof tc === 'number') {
+    const each = +(tc / DISCIPLINES.length).toFixed(2);
+    return Object.fromEntries(DISCIPLINES.map(d => [d, each]));
+  }
+  const out = {};
+  for (const d of DISCIPLINES) out[d] = (tc && typeof tc === 'object' && tc[d] != null) ? tc[d] : 3;
+  return out;
+}
+
+function syncSettingsInputs() {
+  for (const d of DISCIPLINES) {
+    const el = document.getElementById('cap-' + d);
+    if (el) el.value = teamCapacity[d];
+  }
+  const dm = document.getElementById('darkModeToggle');
+  if (dm) dm.checked = darkMode;
+}
+
+function applyDarkMode() {
+  document.body.classList.toggle('dark', darkMode);
+  const icon = document.getElementById('theme-icon');
+  if (icon) icon.className = darkMode ? 'ti ti-sun' : 'ti ti-moon';
 }
 
 // ── Time helpers ──────────────────────────────────────────────────────────
@@ -92,9 +124,67 @@ function idxLabel(idx, short) {
   return short ? MONTHS[m] : `${MONTHS[m]} '${String(y).slice(-2)}`;
 }
 
+// ── Segment helpers ───────────────────────────────────────────────────────
+function segmentsOf(p) { return Array.isArray(p.segments) ? p.segments : []; }
+
+// Segments of a project matching the active global discipline filter (or all).
+function activeSegs(p) {
+  const segs = segmentsOf(p);
+  return filterDiscipline ? segs.filter(s => s.discipline === filterDiscipline) : segs;
+}
+
+// Unique disciplines present on a project.
+function projDisciplines(p) {
+  return [...new Set(segmentsOf(p).map(s => s.discipline))];
+}
+
+// Merged monthly resources (FTEs) across the project's active segments.
+function projResources(p) {
+  const out = {};
+  for (const s of activeSegs(p)) {
+    for (const [ym, v] of Object.entries(s.resources || {})) {
+      out[ym] = (out[ym] || 0) + (v || 0);
+    }
+  }
+  return out;
+}
+
+function projResMonths(p) {
+  return Object.values(projResources(p)).reduce((a, b) => a + (b || 0), 0);
+}
+
+// Total contract value across active segments.
+function projValue(p) {
+  return activeSegs(p).reduce((s, x) => s + (parseFloat(x.value) || 0), 0);
+}
+
+// Est. labor across active segments, each at its own rate.
+function projLabor(p) {
+  return activeSegs(p).reduce((sum, s) => {
+    const rm = Object.values(s.resources || {}).reduce((a, b) => a + (b || 0), 0);
+    return sum + Math.round(rm * 160) * (parseFloat(s.rate) || 0);
+  }, 0);
+}
+
+// Flat list of {project, segment} pairs for the active discipline filter.
+function getSegmentRows() {
+  const rows = [];
+  for (const p of projects) {
+    for (const s of activeSegs(p)) rows.push({ project: p, segment: s });
+  }
+  return rows;
+}
+
+// ── Capacity helpers ──────────────────────────────────────────────────────
+function capacityFor(disc) {
+  if (disc) return teamCapacity[disc] || 0;
+  return DISCIPLINES.reduce((s, d) => s + (teamCapacity[d] || 0), 0);
+}
+function activeCapacity() { return capacityFor(filterDiscipline); }
+
 function getFilteredProjects() {
   if (!filterDiscipline) return projects;
-  return projects.filter(p => p.discipline === filterDiscipline);
+  return projects.filter(p => segmentsOf(p).some(s => s.discipline === filterDiscipline));
 }
 
 function getViewRange() {
@@ -128,7 +218,7 @@ function getViewRange() {
 function getProjectsInView() {
   const [mn, mx] = getViewRange();
   return projects.filter(p => {
-    if (filterDiscipline && p.discipline !== filterDiscipline) return false;
+    if (filterDiscipline && !segmentsOf(p).some(s => s.discipline === filterDiscipline)) return false;
     const s = monthToIdx(p.start), e = monthToIdx(p.end);
     if (s == null || e == null) return false;
     return !(e < mn || s > mx);
@@ -141,11 +231,12 @@ function getMonthlyDemand(weighted) {
   const result = {};
   for (let i = mn; i <= mx; i++) result[i] = 0;
   for (const p of projects) {
-    if (filterDiscipline && p.discipline !== filterDiscipline) continue;
     const factor = weighted ? (p.prob ?? 100) / 100 : 1;
-    for (const [ym, val] of Object.entries(p.resources || {})) {
-      const idx = monthToIdx(ym);
-      if (idx != null && result[idx] !== undefined) result[idx] += (val || 0) * factor;
+    for (const s of activeSegs(p)) {
+      for (const [ym, val] of Object.entries(s.resources || {})) {
+        const idx = monthToIdx(ym);
+        if (idx != null && result[idx] !== undefined) result[idx] += (val || 0) * factor;
+      }
     }
   }
   return result;
@@ -215,8 +306,7 @@ function updateMetrics() {
   const best     = getMonthlyDemand(false);
   const peakW  = Math.max(0, ...Object.values(weighted));
   const peakBC = Math.max(0, ...Object.values(best));
-  const inView = getProjectsInView();
-  const allFiltered = filterDiscipline ? projects.filter(p => p.discipline === filterDiscipline) : projects;
+  const allFiltered = getFilteredProjects();
   document.getElementById('m-total').textContent  = allFiltered.length;
   document.getElementById('m-active').textContent = allFiltered.filter(p => p.status === 'active').length;
   document.getElementById('m-peak-w').textContent  = peakW.toFixed(1);
@@ -232,7 +322,7 @@ function renderDashboard() {
     labels.push(idxLabel(i));
     wData.push(+(weighted[i]||0).toFixed(1));
     bcData.push(+(best[i]||0).toFixed(1));
-    capData.push(teamCapacity);
+    capData.push(activeCapacity());
   }
 
   if (dashChart) { dashChart.destroy(); dashChart = null; }
@@ -263,7 +353,7 @@ function renderDashboard() {
 
 function renderPortfolioDonut() {
   const inView = getProjectsInView();
-  const withValue = inView.filter(p => parseFloat(p.value) > 0);
+  const withValue = inView.filter(p => projValue(p) > 0);
 
   if (donutChart) { donutChart.destroy(); donutChart = null; }
 
@@ -271,7 +361,7 @@ function renderPortfolioDonut() {
     // Fall back to resource-months by project
     const byProject = {};
     for (const p of inView) {
-      const rm = Object.values(p.resources || {}).reduce((a,b) => a+(b||0), 0);
+      const rm = projResMonths(p);
       if (rm > 0) byProject[projectLabel(p)] = rm;
     }
     const dLabels = Object.keys(byProject);
@@ -288,7 +378,7 @@ function renderPortfolioDonut() {
   }
 
   const pLabels = withValue.map(p => projectLabel(p));
-  const pData   = withValue.map(p => parseFloat(p.value));
+  const pData   = withValue.map(p => projValue(p));
   donutChart = new Chart(document.getElementById('donutChart'), {
     type:'doughnut',
     data:{ labels:pLabels, datasets:[{ data:pData, backgroundColor:BAR_COLORS.slice(0,pLabels.length), borderWidth:2, borderColor:'#fff' }] },
@@ -309,8 +399,10 @@ function renderTimelineChart() {
   }
 
   const projectsWithData = getFilteredProjects().filter(p =>
-    p.start && p.end && Object.values(p.resources || {}).some(v => (v||0) > 0)
+    p.start && p.end && Object.values(projResources(p)).some(v => (v||0) > 0)
   );
+  // Pre-merge each project's active-segment resources once.
+  const merged = projectsWithData.map(p => projResources(p));
 
   // Always destroy any existing instance on the canvas (handles variable sync issues)
   const existingTimeline = Chart.getChart('timelineChart');
@@ -323,22 +415,23 @@ function renderTimelineChart() {
   for (let i = mn; i <= mx; i++) {
     const ym = idxToYM(i);
     let total = 0;
-    for (const p of projectsWithData) {
-      total += ((p.resources || {})[ym] || 0) * (p.prob ?? 100) / 100;
-    }
+    projectsWithData.forEach((p, pi) => {
+      total += (merged[pi][ym] || 0) * (p.prob ?? 100) / 100;
+    });
     maxStacked = Math.max(maxStacked, total);
   }
-  const yMax = Math.ceil(Math.max(teamCapacity, maxStacked) * 1.18);
+  const cap = activeCapacity();
+  const yMax = Math.ceil(Math.max(cap, maxStacked) * 1.18);
 
   const capData = [];
-  for (let i = mn; i <= mx; i++) capData.push(teamCapacity);
+  for (let i = mn; i <= mx; i++) capData.push(cap);
 
   const barDatasets = projectsWithData.map((p, pi) => {
     const color = TIMELINE_COLORS[pi % TIMELINE_COLORS.length];
     const data = [];
     for (let i = mn; i <= mx; i++) {
       const ym = idxToYM(i);
-      const val = ((p.resources || {})[ym] || 0) * (p.prob ?? 100) / 100;
+      const val = (merged[pi][ym] || 0) * (p.prob ?? 100) / 100;
       data.push(+val.toFixed(2));
     }
     return {
@@ -350,7 +443,7 @@ function renderTimelineChart() {
       borderWidth: 1,
       borderRadius: 2,
       datalabels: {
-        display: ctx => ctx.parsed.y >= 0.5,
+        display: ctx => ctx.parsed && ctx.parsed.y >= 0.5,
         formatter: v => v.toFixed(1),
         anchor: 'center',
         align: 'center',
@@ -398,7 +491,7 @@ function renderTimelineChart() {
         tooltip: {
           callbacks: {
             label: ctx => ctx.dataset.type === 'line'
-              ? ` Team capacity: ${teamCapacity} FTE`
+              ? ` Team capacity: ${activeCapacity()} FTE`
               : ` ${ctx.dataset.label}: ${ctx.parsed.y.toFixed(1)} FTE`
           }
         },
@@ -461,7 +554,7 @@ function renderProjects() {
     const q = projectFilters.search.toLowerCase();
     if (q && !p.name.toLowerCase().includes(q) && !(p.client||'').toLowerCase().includes(q)) return false;
     if (projectFilters.status     && p.status     !== projectFilters.status)     return false;
-    if (projectFilters.discipline && p.discipline !== projectFilters.discipline) return false;
+    if (projectFilters.discipline && !projDisciplines(p).includes(projectFilters.discipline)) return false;
     return true;
   });
 
@@ -470,14 +563,14 @@ function renderProjects() {
       let av, bv;
       switch (projectSort.col) {
         case 'name':       av = a.name;        bv = b.name;        break;
-        case 'discipline': av = a.discipline||''; bv = b.discipline||''; break;
+        case 'discipline': av = projDisciplines(a).join(','); bv = projDisciplines(b).join(','); break;
         case 'start':      av = a.start||'';   bv = b.start||'';   break;
         case 'status':     av = a.status||'';  bv = b.status||'';  break;
         case 'prob':       av = a.prob??100;   bv = b.prob??100;   break;
-        case 'value':      av = parseFloat(a.value)||0; bv = parseFloat(b.value)||0; break;
+        case 'value':      av = projValue(a); bv = projValue(b); break;
         case 'demand':
-          av = Object.values(a.resources||{}).reduce((s,v)=>s+(v||0),0);
-          bv = Object.values(b.resources||{}).reduce((s,v)=>s+(v||0),0);
+          av = projResMonths(a);
+          bv = projResMonths(b);
           break;
         default: av = bv = '';
       }
@@ -500,7 +593,11 @@ function renderProjects() {
   }
 
   el.innerHTML = filtered.map(p => {
-    const rm = Object.values(p.resources||{}).reduce((a,b)=>a+(b||0),0);
+    const rm = projResMonths(p);
+    const val = projValue(p);
+    const discTags = projDisciplines(p).map(d =>
+      `<span class="disc-tag" style="border-left:3px solid ${DISCIPLINE_COLORS[d]||'#888'}">${d}</span>`
+    ).join(' ') || '<span class="disc-tag">—</span>';
     const hasNotes = p.notes && p.notes.trim();
     return `<tr onclick="openEdit('${p.id}')"
         onmouseenter="showTooltip(event,'${p.id}')"
@@ -511,11 +608,11 @@ function renderProjects() {
           ${p.client ? `<span class="proj-client">${p.client}</span>` : ''}
         </div>
       </td>
-      <td><span class="disc-tag">${p.discipline||'—'}</span></td>
+      <td>${discTags}</td>
       <td style="white-space:nowrap;font-size:12px;">${p.start||'—'} → ${p.end||'—'}</td>
       <td><span class="badge ${STATUS_BADGE[p.status]||'badge-gray'}">${STATUS_LABEL[p.status]||p.status}</span></td>
       <td style="font-size:12px;">${p.prob??100}%</td>
-      <td style="font-size:12px;">${p.value ? formatMoney(parseFloat(p.value)) : '—'}</td>
+      <td style="font-size:12px;">${val>0 ? formatMoney(val) : '—'}</td>
       <td style="font-size:12px;">${rm>0?rm.toFixed(1):'—'}</td>
       <td><button class="btn btn-sm btn-icon" onclick="event.stopPropagation();openEdit('${p.id}')"><i class="ti ti-edit"></i></button></td>
     </tr>`;
@@ -556,7 +653,7 @@ function renderResources() {
     labels.push(idxLabel(i));
     wData.push(+(weighted[i]||0).toFixed(2));
     bcData.push(+(best[i]||0).toFixed(2));
-    capData.push(teamCapacity);
+    capData.push(activeCapacity());
   }
 
   if (resChart) { resChart.destroy(); resChart = null; }
@@ -655,7 +752,7 @@ function renderGantt() {
     const w = Math.max(0, right - left);
     const color = BAR_COLORS[pi % BAR_COLORS.length];
     const op = ((p.prob ?? 100) / 100).toFixed(2);
-    const rm = Object.values(p.resources||{}).reduce((a,b)=>a+(b||0),0);
+    const rm = projResMonths(p);
     const dur = Math.max(1, monthToIdx(p.end) - monthToIdx(p.start) + 1);
     const avgFTE = rm > 0 ? rm / dur : 0;
     const barH = Math.max(18, Math.min(52, Math.round(avgFTE * 14 + 10)));
@@ -677,52 +774,81 @@ function renderGantt() {
 }
 
 // ── Financials ─────────────────────────────────────────────────────────────
+// Reduce a single segment to its financial metrics.
+function segMetrics(s) {
+  const rm    = Object.values(s.resources || {}).reduce((a,b)=>a+(b||0),0);
+  const rate  = parseFloat(s.rate)   || 0;
+  const value = parseFloat(s.value)  || 0;
+  const margin = (s.margin != null && s.margin !== '') ? parseFloat(s.margin) : null;
+  const labor = Math.round(rm * 160) * rate;
+  return { value, margin, rate, rm, labor };
+}
+
+// Render the 6 trailing financial <td> cells from a metrics object.
+function finCells(m) {
+  const value = m.value || 0, rm = m.rm || 0, labor = m.labor || 0;
+  const rate = m.rate, margin = m.margin;
+  const actual = value > 0 && labor > 0 ? value - labor : null;
+  const mColor = actual != null ? (actual >= 0 ? 'var(--green)' : 'var(--red)') : '';
+  return `<td style="text-align:right;">${value>0?formatMoney(value):'—'}</td>
+    <td style="text-align:right;">${margin!=null?margin+'%':'—'}</td>
+    <td style="text-align:right;">${rate>0?'$'+rate+'/hr':'—'}</td>
+    <td style="text-align:right;">${rm>0?rm.toFixed(1):'—'}</td>
+    <td style="text-align:right;">${labor>0?formatMoney(labor):'—'}</td>
+    <td style="text-align:right;font-weight:600;color:${mColor}">${actual!=null?formatMoney(actual):'—'}</td>`;
+}
+
 function renderFinancials() {
   const fp = getFilteredProjects();
-  const totalValue    = fp.reduce((s,p) => s+(parseFloat(p.value)||0), 0);
-  const weightedValue = fp.reduce((s,p) => s+(parseFloat(p.value)||0)*(p.prob??100)/100, 0);
-  const totalResMonths = fp.reduce((s,p) => s+Object.values(p.resources||{}).reduce((a,b)=>a+(b||0),0), 0);
-  const totalLabor    = fp.reduce((s,p) => {
-    const rm = Object.values(p.resources||{}).reduce((a,b)=>a+(b||0),0);
-    return s + rm * 160 * (parseFloat(p.rate)||0);
-  }, 0);
+  const totalValue     = fp.reduce((s,p) => s + projValue(p), 0);
+  const weightedValue  = fp.reduce((s,p) => s + projValue(p)*(p.prob??100)/100, 0);
+  const totalResMonths = fp.reduce((s,p) => s + projResMonths(p), 0);
+  const totalLabor     = fp.reduce((s,p) => s + projLabor(p), 0);
 
   document.getElementById('fin-total-value').textContent    = totalValue    > 0 ? formatMoney(totalValue)    : '—';
   document.getElementById('fin-weighted-value').textContent = weightedValue > 0 ? formatMoney(weightedValue) : '—';
   document.getElementById('fin-res-months').textContent     = totalResMonths > 0 ? totalResMonths.toFixed(1) : '—';
   document.getElementById('fin-labor-cost').textContent     = totalLabor    > 0 ? formatMoney(totalLabor)    : '—';
 
+  // One row per project; a sub-row per discipline segment when there is >1 segment.
   const rows = fp.map(p => {
-    const rm       = Object.values(p.resources||{}).reduce((a,b)=>a+(b||0),0);
-    const rate     = parseFloat(p.rate)   || 0;
-    const value    = parseFloat(p.value)  || 0;
-    const margin   = parseFloat(p.margin) || null;
-    const labor    = Math.round(rm * 160) * rate;
-    const actualMargin = value > 0 && labor > 0 ? value - labor : null;
-    const mColor = actualMargin != null ? (actualMargin >= 0 ? 'var(--green)' : 'var(--red)') : '';
-    return `<tr onclick="openEdit('${p.id}')">
-      <td><strong>${p.name}</strong>${p.client?`<span class="proj-client" style="display:block">${p.client}</span>`:''}</td>
+    const segs = activeSegs(p);
+    const multi = segs.length > 1;
+    // Project header row — combined totals across active segments.
+    const combined = { value: projValue(p), rm: projResMonths(p), labor: projLabor(p), rate: null, margin: null };
+    const head = `<tr onclick="openEdit('${p.id}')" class="fin-proj-row">
+      <td><strong>${p.name}</strong>${p.client?`<span class="proj-client" style="display:block">${p.client}</span>`:''}${multi?` <span class="disc-tag" style="font-size:9px;">${segs.length} disciplines</span>`:''}</td>
       <td><span class="badge ${STATUS_BADGE[p.status]||'badge-gray'}">${STATUS_LABEL[p.status]||p.status}</span></td>
-      <td style="text-align:right;">${value>0?formatMoney(value):'—'}</td>
-      <td style="text-align:right;">${margin!=null?margin+'%':'—'}</td>
-      <td style="text-align:right;">${rate>0?'$'+rate+'/hr':'—'}</td>
-      <td style="text-align:right;">${rm>0?rm.toFixed(1):'—'}</td>
-      <td style="text-align:right;">${labor>0?formatMoney(labor):'—'}</td>
-      <td style="text-align:right;font-weight:600;color:${mColor}">${actualMargin!=null?formatMoney(actualMargin):'—'}</td>
+      ${finCells(combined)}
     </tr>`;
+    if (!multi) {
+      // single segment — show its own rate/margin inline
+      const s = segs[0] || {};
+      return `<tr onclick="openEdit('${p.id}')" class="fin-proj-row">
+        <td><strong>${p.name}</strong>${p.client?`<span class="proj-client" style="display:block">${p.client}</span>`:''}</td>
+        <td><span class="badge ${STATUS_BADGE[p.status]||'badge-gray'}">${STATUS_LABEL[p.status]||p.status}</span></td>
+        ${finCells(segMetrics(s))}
+      </tr>`;
+    }
+    const subs = segs.map(s => `<tr onclick="openEdit('${p.id}')" class="fin-seg-row">
+      <td style="padding-left:24px;"><span class="disc-tag" style="border-left:3px solid ${DISCIPLINE_COLORS[s.discipline]||'#888'}">${s.discipline}</span></td>
+      <td></td>
+      ${finCells(segMetrics(s))}
+    </tr>`).join('');
+    return head + subs;
   }).join('');
 
   document.getElementById('fin-tbody').innerHTML = rows ||
     `<tr><td colspan="8" style="text-align:center;padding:2rem;color:var(--text-muted);">No projects yet.</td></tr>`;
 
   if (valueChart) { valueChart.destroy(); valueChart = null; }
-  const pv = fp.filter(p => parseFloat(p.value) > 0);
+  const pv = fp.filter(p => projValue(p) > 0);
   if (pv.length) {
     valueChart = new Chart(document.getElementById('valueChart'), {
       type:'bar',
       data:{
         labels: pv.map(p => projectLabel(p)),
-        datasets:[{ label:'Contract Value', data:pv.map(p=>parseFloat(p.value)||0),
+        datasets:[{ label:'Contract Value', data:pv.map(p=>projValue(p)),
           backgroundColor: pv.map((_,i)=>BAR_COLORS[i%BAR_COLORS.length]+'cc'),
           borderColor:     pv.map((_,i)=>BAR_COLORS[i%BAR_COLORS.length]),
           borderWidth:1, borderRadius:4 }]
@@ -739,74 +865,69 @@ function renderFinancials() {
   }
 }
 
-// ── Planning calculator ────────────────────────────────────────────────────
-window.updatePlanner = function() {
-  const value    = parseFloat(document.getElementById('f-value').value)  || 0;
-  const margin   = parseFloat(document.getElementById('f-margin').value);
-  const rate     = parseFloat(document.getElementById('f-rate').value)   || 0;
-  const start    = document.getElementById('f-start').value;
-  const end      = document.getElementById('f-end').value;
+// ── Per-segment planning calculator ────────────────────────────────────────
+function segCard(idx) { return document.querySelector(`.seg-card[data-idx="${idx}"]`); }
+
+window.updateSegPlanner = function(idx) {
+  const card = segCard(idx);
+  if (!card) return;
+  const value  = parseFloat(card.querySelector('.seg-value').value)  || 0;
+  const margin = parseFloat(card.querySelector('.seg-margin').value);
+  const rate   = parseFloat(card.querySelector('.seg-rate').value)   || 0;
+  const start  = document.getElementById('f-start').value;
+  const end    = document.getElementById('f-end').value;
   const duration = (start && end && monthToIdx(end) >= monthToIdx(start))
     ? monthToIdx(end) - monthToIdx(start) + 1 : null;
 
-  const result  = document.getElementById('planner-result');
-  const actions = document.getElementById('planner-actions');
-  const canCalcFTEs = value > 0 && !isNaN(margin) && rate > 0 && duration;
-
+  const result = card.querySelector('.seg-planner-result');
+  const apply  = card.querySelector('.seg-apply');
+  const canCalc = value > 0 && !isNaN(margin) && rate > 0 && duration;
   let html = '';
 
-  if (canCalcFTEs) {
-    const laborBudget = value * (1 - margin / 100);
+  if (canCalc) {
+    const laborBudget  = value * (1 - margin / 100);
     const ftesPerMonth = laborBudget / (duration * 160 * rate);
-    document.getElementById('planner-ftes-val').textContent = ftesPerMonth.toFixed(2);
-    actions.style.display = 'block';
+    apply.style.display = 'inline-flex';
+    apply.dataset.ftes = ftesPerMonth.toFixed(2);
+    apply.querySelector('.seg-ftes-val').textContent = ftesPerMonth.toFixed(2);
     html += `<div class="planner-line planner-primary">
       <i class="ti ti-arrow-right"></i>
       <strong>${ftesPerMonth.toFixed(2)} FTEs/month</strong>
       <span class="planner-detail">labor ${formatMoney(laborBudget)} ÷ ${duration}mo ÷ 160hrs ÷ $${rate}/hr</span>
     </div>`;
-  } else if (!canCalcFTEs) {
-    actions.style.display = 'none';
+  } else {
+    apply.style.display = 'none';
     const missing = [];
-    if (!value)            missing.push('budget');
-    if (isNaN(margin))     missing.push('margin');
-    if (!rate)             missing.push('rate');
-    if (!duration)         missing.push('dates');
+    if (!value)        missing.push('budget');
+    if (isNaN(margin)) missing.push('margin');
+    if (!rate)         missing.push('rate');
+    if (!duration)     missing.push('dates');
     html = `<span class="planner-hint">Need: ${missing.join(', ')}</span>`;
   }
 
-  // Show what current monthly schedule implies
-  const curInputs = document.querySelectorAll('#month-inputs input');
+  // What the current monthly schedule implies for this segment
   let totalRM = 0;
-  curInputs.forEach(inp => { totalRM += parseFloat(inp.value) || 0; });
+  card.querySelectorAll('.seg-months input').forEach(inp => { totalRM += parseFloat(inp.value) || 0; });
   if (totalRM > 0 && rate > 0) {
     const impliedLabor = totalRM * 160 * rate;
-    let impliedLine = `Schedule: ${totalRM.toFixed(1)} res-mo → est. labor ${formatMoney(impliedLabor)}`;
+    let line = `Schedule: ${totalRM.toFixed(1)} res-mo → labor ${formatMoney(impliedLabor)}`;
     if (value > 0) {
       const impliedMargin = (1 - impliedLabor / value) * 100;
       const col = impliedMargin >= 0 ? 'var(--green)' : 'var(--red)';
-      impliedLine += ` → margin <strong style="color:${col}">${impliedMargin.toFixed(0)}%</strong>`;
+      line += ` → margin <strong style="color:${col}">${impliedMargin.toFixed(0)}%</strong>`;
     }
-    html += `<div class="planner-line planner-implied">${impliedLine}</div>`;
+    html += `<div class="planner-line planner-implied">${line}</div>`;
   }
-
   result.innerHTML = html || '<span class="planner-hint">Enter value, margin, rate + dates</span>';
 };
 
-window.applyPlannedFTEs = function() {
-  const value    = parseFloat(document.getElementById('f-value').value)  || 0;
-  const margin   = parseFloat(document.getElementById('f-margin').value) || 0;
-  const rate     = parseFloat(document.getElementById('f-rate').value)   || 0;
-  const start    = document.getElementById('f-start').value;
-  const end      = document.getElementById('f-end').value;
-  if (!value || !rate || !start || !end) return;
-  const duration     = Math.max(1, monthToIdx(end) - monthToIdx(start) + 1);
-  const laborBudget  = value * (1 - margin / 100);
-  const ftesPerMonth = laborBudget / (duration * 160 * rate);
-  document.querySelectorAll('#month-inputs input').forEach(inp => {
-    inp.value = ftesPerMonth.toFixed(2);
-  });
-  updatePlanner();
+window.applySegFTEs = function(idx) {
+  const card = segCard(idx);
+  if (!card) return;
+  const ftes = card.querySelector('.seg-apply').dataset.ftes;
+  if (ftes == null) return;
+  card.querySelectorAll('.seg-months input').forEach(inp => { inp.value = (+ftes).toFixed(2); });
+  updateSegPlanner(idx);
 };
 
 // ── Data backup & restore ──────────────────────────────────────────────────
@@ -842,7 +963,10 @@ window.restoreFromFile = async function(input) {
     });
     const loaded = await api('GET', '/api/projects');
     projects = loaded.projects || [];
-    teamCapacity = loaded.teamCapacity || 10;
+    teamCapacity = normalizeCapacity(loaded.teamCapacity);
+    darkMode = !!loaded.darkMode;
+    applyDarkMode();
+    syncSettingsInputs();
     renderAll();
     statusEl.style.display = 'block';
     statusEl.style.color = 'var(--green)';
@@ -874,21 +998,10 @@ window.exportReport = function() {
   const windowStr = `${idxLabel(mn)} – ${idxLabel(mx)}`;
 
   const rp = getFilteredProjects();
-  const totalValue    = rp.reduce((s,p) => s+(parseFloat(p.value)||0), 0);
-  const weightedValue = rp.reduce((s,p) => s+(parseFloat(p.value)||0)*(p.prob??100)/100, 0);
+  const cap = activeCapacity();
+  const totalValue    = rp.reduce((s,p) => s + projValue(p), 0);
+  const weightedValue = rp.reduce((s,p) => s + projValue(p)*(p.prob??100)/100, 0);
   const weighted = getMonthlyDemand(true), best = getMonthlyDemand(false);
-
-  // Monthly resource table
-  let resRows = '';
-  for (let i = mn; i <= mx; i++) {
-    const w = +(weighted[i]||0).toFixed(1), bc = +(best[i]||0).toFixed(1);
-    const over = bc > teamCapacity;
-    resRows += `<tr><td>${idxLabel(i)}</td><td style="text-align:right">${w}</td>
-      <td style="text-align:right${over?';color:#9b1c1c;font-weight:600':''}">
-        ${bc}${over?' ⚠':''}
-      </td>
-      <td style="text-align:right;color:#666">${teamCapacity}</td></tr>`;
-  }
 
   // Gantt as HTML
   const count = mx - mn + 1;
@@ -914,26 +1027,6 @@ window.exportReport = function() {
       </div>
     </div>`;
   }).filter(Boolean).join('');
-
-  // Project rows
-  const projRows = rp.map(p => {
-    const rm    = Object.values(p.resources||{}).reduce((a,b)=>a+(b||0),0);
-    const value = parseFloat(p.value)||0;
-    const rate  = parseFloat(p.rate)||0;
-    const labor = Math.round(rm*160)*rate;
-    const margin = value>0&&labor>0 ? value-labor : null;
-    return `<tr>
-      <td>${projectLabel(p)}</td>
-      <td>${p.discipline||'—'}</td>
-      <td style="white-space:nowrap">${p.start||'—'} → ${p.end||'—'}</td>
-      <td>${STATUS_LABEL[p.status]||p.status}</td>
-      <td style="text-align:right">${p.prob??100}%</td>
-      <td style="text-align:right">${rm>0?rm.toFixed(1):'—'}</td>
-      <td style="text-align:right">${value>0?formatMoney(value):'—'}</td>
-      <td style="text-align:right">${labor>0?formatMoney(labor):'—'}</td>
-      <td style="text-align:right;${margin!=null?(margin>=0?'color:#065f46':'color:#9b1c1c'):''};font-weight:${margin!=null?'600':'400'}">${margin!=null?formatMoney(margin):'—'}</td>
-    </tr>`;
-  }).join('');
 
   const html = `<!DOCTYPE html>
 <html lang="en">
@@ -1003,7 +1096,7 @@ window.exportReport = function() {
   <div class="metric"><div class="metric-label">Peak Best-Case FTE</div><div class="metric-value" style="color:#1a56a0">${document.getElementById('m-peak-wc').textContent}</div></div>
   ${totalValue>0?`<div class="metric"><div class="metric-label">Portfolio Value</div><div class="metric-value" style="color:#065f46">${formatMoney(totalValue)}</div></div>`:''}
   ${weightedValue>0?`<div class="metric"><div class="metric-label">Expected Value</div><div class="metric-value" style="color:#0e7490">${formatMoney(weightedValue)}</div></div>`:''}
-  <div class="metric"><div class="metric-label">Team Capacity</div><div class="metric-value" style="color:#374151">${teamCapacity} FTE</div></div>
+  <div class="metric"><div class="metric-label">Team Capacity</div><div class="metric-value" style="color:#374151">${cap} FTE</div></div>
 </div>
 
 <h2>Resource Demand &amp; Portfolio Value</h2>
@@ -1060,13 +1153,13 @@ ${timelineImg?`
   <tbody>${Array.from({length:mx-mn+1},(_,k)=>{
     const i=mn+k;
     const w=+(weighted[i]||0).toFixed(1), bc=+(best[i]||0).toFixed(1);
-    const over=bc>teamCapacity;
-    const headroom=(teamCapacity-bc).toFixed(1);
+    const over=bc>cap;
+    const headroom=(cap-bc).toFixed(1);
     return `<tr>
       <td style="font-weight:600">${idxLabel(i)}</td>
       <td style="text-align:right">${w}</td>
       <td style="text-align:right" class="${over?'over':''}">${bc}${over?' ⚠':''}</td>
-      <td style="text-align:right;color:#6b7280">${teamCapacity}</td>
+      <td style="text-align:right;color:#6b7280">${cap}</td>
       <td style="text-align:right;color:${over?'#9b1c1c':'#065f46'};font-weight:600">${over?headroom:'+'+headroom}</td>
     </tr>`;
   }).join('')}</tbody>
@@ -1087,18 +1180,17 @@ ${timelineImg?`
     <th style="width:9%;text-align:right">Margin %</th>
   </tr></thead>
   <tbody>${rp.map(p=>{
-    const rm=Object.values(p.resources||{}).reduce((a,b)=>a+(b||0),0);
-    const value=parseFloat(p.value)||0;
-    const rate=parseFloat(p.rate)||0;
-    const labor=Math.round(rm*160)*rate;
+    const rm=projResMonths(p);
+    const value=projValue(p);
+    const labor=projLabor(p);
     const marginDol=value>0&&labor>0?value-labor:null;
-    const marginPct=p.margin!=null?parseFloat(p.margin):null;
+    const marginPct=marginDol!=null?(marginDol/value*100):null;
     const mColor=marginDol!=null?(marginDol>=0?'#065f46':'#9b1c1c'):'';
     const badge={active:'badge-green',probable:'badge-teal',bid:'badge-blue','on-hold':'badge-gray',completed:'badge-gray'}[p.status]||'badge-gray';
     return `<tr>
       <td style="font-weight:600">${p.name}${p.client?`<span style="display:block;font-weight:400;color:#4a6080;font-size:9px">${p.client}</span>`:''}
       </td>
-      <td>${p.discipline||'—'}</td>
+      <td>${projDisciplines(p).join(', ')||'—'}</td>
       <td style="font-size:9px">${p.start||'—'}<br>${p.end||'—'}</td>
       <td><span class="badge ${badge}">${STATUS_LABEL[p.status]||p.status}</span></td>
       <td style="text-align:right">${p.prob??100}%</td>
@@ -1106,7 +1198,7 @@ ${timelineImg?`
       <td style="text-align:right">${value>0?formatMoney(value):'—'}</td>
       <td style="text-align:right">${labor>0?formatMoney(labor):'—'}</td>
       <td style="text-align:right;font-weight:600;color:${mColor}">${marginDol!=null?formatMoney(marginDol):'—'}</td>
-      <td style="text-align:right;color:${mColor}">${marginPct!=null?marginPct+'%':'—'}</td>
+      <td style="text-align:right;color:${mColor}">${marginPct!=null?marginPct.toFixed(0)+'%':'—'}</td>
     </tr>`;
   }).join('')}</tbody>
 </table>
@@ -1129,23 +1221,25 @@ ${timelineImg?`
 };
 
 // ── Modal: open / close ───────────────────────────────────────────────────
+function newSegment(disc) {
+  return { discipline: disc, value: '', margin: '', rate: '', resources: {} };
+}
+
 window.openAdd = function() {
   editingId = null;
   document.getElementById('modal-title').textContent = 'Add project';
   document.getElementById('modal-delete').style.display = 'none';
-  ['f-name','f-client','f-notes','f-value','f-margin','f-rate'].forEach(id => document.getElementById(id).value = '');
+  ['f-name','f-client','f-notes'].forEach(id => document.getElementById(id).value = '');
   document.getElementById('f-prob').value = 100;
   document.getElementById('f-status').value = 'active';
-  document.getElementById('f-discipline').value = 'Transmission';
   const now = new Date();
   const ym    = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
   const end   = new Date(now.getFullYear(), now.getMonth()+6, 1);
   const ymEnd = `${end.getFullYear()}-${String(end.getMonth()+1).padStart(2,'0')}`;
   document.getElementById('f-start').value = ym;
   document.getElementById('f-end').value   = ymEnd;
-  buildMonthInputs(ym, ymEnd, {});
-  document.getElementById('planner-result').innerHTML = '<span class="planner-hint">Enter value, margin, rate + dates</span>';
-  document.getElementById('planner-actions').style.display = 'none';
+  editSegments = [newSegment('Transmission')];
+  renderSegments();
   document.getElementById('projectModal').classList.add('open');
 };
 
@@ -1155,76 +1249,150 @@ window.openEdit = function(id) {
   editingId = id;
   document.getElementById('modal-title').textContent = 'Edit project';
   document.getElementById('modal-delete').style.display = 'inline-flex';
-  document.getElementById('f-name').value       = p.name       || '';
-  document.getElementById('f-client').value     = p.client     || '';
-  document.getElementById('f-notes').value      = p.notes      || '';
-  document.getElementById('f-start').value      = p.start      || '';
-  document.getElementById('f-end').value        = p.end        || '';
-  document.getElementById('f-prob').value       = p.prob       ?? 100;
-  document.getElementById('f-status').value     = p.status     || 'active';
-  document.getElementById('f-discipline').value = p.discipline || 'Transmission';
-  document.getElementById('f-value').value      = p.value      || '';
-  document.getElementById('f-margin').value     = p.margin     || '';
-  document.getElementById('f-rate').value       = p.rate       || '';
-  buildMonthInputs(p.start, p.end, p.resources || {});
-  updatePlanner();
+  document.getElementById('f-name').value   = p.name   || '';
+  document.getElementById('f-client').value = p.client || '';
+  document.getElementById('f-notes').value  = p.notes  || '';
+  document.getElementById('f-start').value  = p.start  || '';
+  document.getElementById('f-end').value    = p.end    || '';
+  document.getElementById('f-prob').value   = p.prob   ?? 100;
+  document.getElementById('f-status').value = p.status || 'active';
+  // Deep-copy segments so edits aren't applied until save.
+  const segs = segmentsOf(p);
+  editSegments = (segs.length ? segs : [newSegment('Transmission')]).map(s => ({
+    discipline: s.discipline || 'Transmission',
+    value:  s.value  ?? '',
+    margin: s.margin ?? '',
+    rate:   s.rate   ?? '',
+    resources: { ...(s.resources || {}) }
+  }));
+  renderSegments();
   document.getElementById('projectModal').classList.add('open');
 };
 
 window.closeModal = function() {
   document.getElementById('projectModal').classList.remove('open');
   editingId = null;
+  editSegments = [];
 };
 
-// ── Month inputs ──────────────────────────────────────────────────────────
-function buildMonthInputs(start, end, existing) {
-  const container = document.getElementById('month-inputs');
-  if (!start || !end) { container.innerHTML = '<div style="color:var(--text-muted);font-size:12px;">Set start and end month first</div>'; return; }
-  const s = monthToIdx(start), e = monthToIdx(end);
-  if (s == null || e == null || s > e) { container.innerHTML = '<div style="color:var(--text-muted);font-size:12px;">Invalid date range</div>'; return; }
-  container.innerHTML = '';
-  for (let i = s; i <= e; i++) {
-    const ym = idxToYM(i);
-    const cell = document.createElement('div');
-    cell.className = 'month-cell';
-    cell.innerHTML = `<label>${idxLabel(i,true)} '${String(Math.floor(i/12)).slice(-2)}</label>
-      <input type="number" min="0" step="0.5" data-ym="${ym}" value="${existing[ym]!=null?existing[ym]:''}" oninput="updatePlanner()">`;
-    container.appendChild(cell);
-  }
+// ── Segment cards ─────────────────────────────────────────────────────────
+// Read current DOM values back into editSegments (so re-render keeps edits).
+function syncSegmentsFromDOM() {
+  document.querySelectorAll('.seg-card').forEach(card => {
+    const idx = +card.dataset.idx;
+    const seg = editSegments[idx];
+    if (!seg) return;
+    seg.discipline = card.querySelector('.seg-discipline').value;
+    seg.value  = card.querySelector('.seg-value').value;
+    seg.margin = card.querySelector('.seg-margin').value;
+    seg.rate   = card.querySelector('.seg-rate').value;
+    const res = {};
+    card.querySelectorAll('.seg-months input').forEach(inp => {
+      const v = parseFloat(inp.value);
+      if (!isNaN(v) && v > 0) res[inp.dataset.ym] = v;
+    });
+    seg.resources = res;
+  });
 }
 
+function renderSegments() {
+  const container = document.getElementById('segments-container');
+  const start = document.getElementById('f-start').value;
+  const end   = document.getElementById('f-end').value;
+  container.innerHTML = editSegments.map((seg, idx) => {
+    const opts = DISCIPLINES.map(d => `<option ${seg.discipline===d?'selected':''}>${d}</option>`).join('');
+    return `<div class="seg-card" data-idx="${idx}" style="border-left:4px solid ${DISCIPLINE_COLORS[seg.discipline]||'#888'}">
+      <div class="seg-card-head">
+        <select class="seg-discipline" onchange="onSegChange(${idx})">${opts}</select>
+        ${editSegments.length > 1 ? `<button type="button" class="btn btn-sm btn-danger" onclick="removeSegment(${idx})"><i class="ti ti-trash"></i></button>` : ''}
+      </div>
+      <div class="form-row-3" style="margin-bottom:10px;">
+        <div><label>Contract value ($)</label><input type="number" class="seg-value" min="0" step="1000" value="${seg.value ?? ''}" oninput="updateSegPlanner(${idx})"></div>
+        <div><label>Target margin (%)</label><input type="number" class="seg-margin" min="-200" max="99" step="1" value="${seg.margin ?? ''}" oninput="updateSegPlanner(${idx})"></div>
+        <div><label>Avg FTE rate ($/hr)</label><input type="number" class="seg-rate" min="0" step="5" value="${seg.rate ?? ''}" oninput="updateSegPlanner(${idx})"></div>
+      </div>
+      <div class="planner-panel" style="margin-bottom:10px;">
+        <div class="seg-planner-result planner-result"></div>
+        <button type="button" class="btn btn-sm btn-teal seg-apply" style="display:none;margin-top:8px;" onclick="applySegFTEs(${idx})">
+          <i class="ti ti-wand"></i> Apply <span class="seg-ftes-val">0</span> FTEs/month evenly
+        </button>
+      </div>
+      <div class="month-section-title">Monthly headcount (FTEs)</div>
+      <div class="month-grid seg-months">${monthGridHTML(start, end, seg.resources, idx)}</div>
+    </div>`;
+  }).join('');
+  editSegments.forEach((_, idx) => updateSegPlanner(idx));
+}
+
+function monthGridHTML(start, end, existing, idx) {
+  if (!start || !end) return '<div style="color:var(--text-muted);font-size:12px;">Set start and end month first</div>';
+  const s = monthToIdx(start), e = monthToIdx(end);
+  if (s == null || e == null || s > e) return '<div style="color:var(--text-muted);font-size:12px;">Invalid date range</div>';
+  let out = '';
+  for (let i = s; i <= e; i++) {
+    const ym = idxToYM(i);
+    out += `<div class="month-cell"><label>${idxLabel(i,true)} '${String(Math.floor(i/12)).slice(-2)}</label>
+      <input type="number" min="0" step="0.5" data-ym="${ym}" value="${existing[ym]!=null?existing[ym]:''}" oninput="updateSegPlanner(${idx})"></div>`;
+  }
+  return out;
+}
+
+window.onSegChange = function(idx) {
+  syncSegmentsFromDOM();
+  renderSegments();
+};
+
+window.addSegment = function() {
+  syncSegmentsFromDOM();
+  const used = editSegments.map(s => s.discipline);
+  const next = DISCIPLINES.find(d => !used.includes(d)) || 'Transmission';
+  editSegments.push(newSegment(next));
+  renderSegments();
+};
+
+window.removeSegment = function(idx) {
+  syncSegmentsFromDOM();
+  editSegments.splice(idx, 1);
+  if (!editSegments.length) editSegments = [newSegment('Transmission')];
+  renderSegments();
+};
+
+// Rebuild all segment month grids when the project date range changes.
 window.refreshMonthInputs = function() {
-  const s = document.getElementById('f-start').value;
-  const e = document.getElementById('f-end').value;
-  const existing = {};
-  document.querySelectorAll('#month-inputs input').forEach(inp => {
-    if (inp.value !== '') existing[inp.dataset.ym] = parseFloat(inp.value) || 0;
-  });
-  buildMonthInputs(s, e, existing);
+  syncSegmentsFromDOM();
+  renderSegments();
 };
 
 // ── Save / Delete ─────────────────────────────────────────────────────────
 window.saveProject = async function() {
   const name = document.getElementById('f-name').value.trim();
   if (!name) { alert('Project name is required.'); return; }
-  const resources = {};
-  document.querySelectorAll('#month-inputs input').forEach(inp => {
-    const v = parseFloat(inp.value);
-    if (!isNaN(v) && v > 0) resources[inp.dataset.ym] = v;
-  });
+  syncSegmentsFromDOM();
+
+  // Validate: no duplicate disciplines.
+  const discs = editSegments.map(s => s.discipline);
+  if (new Set(discs).size !== discs.length) {
+    alert('Each discipline can only appear once per project. Remove the duplicate segment.');
+    return;
+  }
+
+  const segments = editSegments.map(s => ({
+    discipline: s.discipline,
+    value:  s.value  !== '' && s.value  != null ? parseFloat(s.value)  : null,
+    margin: s.margin !== '' && s.margin != null ? parseFloat(s.margin) : null,
+    rate:   s.rate   !== '' && s.rate   != null ? parseFloat(s.rate)   : null,
+    resources: s.resources || {}
+  }));
+
   const payload = {
     name,
-    client:     document.getElementById('f-client').value.trim(),
-    notes:      document.getElementById('f-notes').value.trim(),
-    start:      document.getElementById('f-start').value,
-    end:        document.getElementById('f-end').value,
-    prob:       parseInt(document.getElementById('f-prob').value) || 100,
-    status:     document.getElementById('f-status').value,
-    discipline: document.getElementById('f-discipline').value,
-    value:      parseFloat(document.getElementById('f-value').value)  || null,
-    margin:     parseFloat(document.getElementById('f-margin').value) || null,
-    rate:       parseFloat(document.getElementById('f-rate').value)   || null,
-    resources
+    client:  document.getElementById('f-client').value.trim(),
+    notes:   document.getElementById('f-notes').value.trim(),
+    start:   document.getElementById('f-start').value,
+    end:     document.getElementById('f-end').value,
+    prob:    parseInt(document.getElementById('f-prob').value) || 100,
+    status:  document.getElementById('f-status').value,
+    segments
   };
   try {
     if (editingId) {
@@ -1254,10 +1422,24 @@ window.deleteProject = async function() {
 
 // ── Settings ──────────────────────────────────────────────────────────────
 window.saveSettings = async function() {
-  teamCapacity = parseInt(document.getElementById('capacityInput').value) || 10;
-  await api('PUT', '/api/settings', { teamCapacity });
+  const tc = {};
+  for (const d of DISCIPLINES) {
+    tc[d] = parseFloat(document.getElementById('cap-' + d).value) || 0;
+  }
+  teamCapacity = tc;
+  darkMode = document.getElementById('darkModeToggle').checked;
+  await api('PUT', '/api/settings', { teamCapacity, darkMode });
+  applyDarkMode();
   renderAll();
   toast('Settings saved');
+};
+
+window.toggleDarkMode = function() {
+  darkMode = !darkMode;
+  applyDarkMode();
+  syncSettingsInputs();
+  // Persist immediately so the preference survives reloads.
+  api('PUT', '/api/settings', { darkMode }).catch(() => {});
 };
 
 // ── Toast ─────────────────────────────────────────────────────────────────
@@ -1267,6 +1449,7 @@ function toast(msg) {
   el.classList.add('show');
   setTimeout(() => el.classList.remove('show'), 2500);
 }
+window.showToast = toast;
 
 // ── Init ──────────────────────────────────────────────────────────────────
 document.getElementById('projectModal').addEventListener('click', function(e) {

@@ -61,6 +61,7 @@
         </select>
       </div>
       <div class="topbar-actions">
+        <button class="btn btn-sm btn-icon" id="theme-btn" onclick="toggleDarkMode()" title="Toggle light/dark"><i class="ti ti-moon" id="theme-icon"></i></button>
         <button class="btn btn-sm" onclick="exportReport()"><i class="ti ti-file-export"></i> Export</button>
         <button class="btn btn-primary" onclick="openAdd()"><i class="ti ti-plus"></i> Add project</button>
       </div>
@@ -258,23 +259,33 @@
       <!-- ── Settings ───────────────────────────── -->
       <div id="settings" class="section">
         <div class="card" style="max-width:500px;">
-          <div class="card-title">Team settings</div>
+          <div class="card-title">Team capacity by discipline</div>
+          <div class="settings-desc" style="margin-bottom:8px;">FTEs available per department. Shown as the capacity line on charts (summed when viewing "All Disciplines").</div>
           <div class="settings-row">
-            <div>
-              <div class="settings-label">Team capacity</div>
-              <div class="settings-desc">Total FTEs available. Shown as a reference line on charts.</div>
-            </div>
-            <div style="display:flex;align-items:center;gap:8px;">
-              <input type="number" id="capacityInput" min="1" max="200" value="10" style="width:80px;">
-              <button class="btn btn-primary btn-sm" onclick="saveSettings()">Save</button>
-            </div>
+            <div><div class="settings-label" style="color:#2563eb;">Distribution</div></div>
+            <input type="number" id="cap-Distribution" min="0" step="0.5" value="3" style="width:90px;">
+          </div>
+          <div class="settings-row">
+            <div><div class="settings-label" style="color:#ea580c;">Transmission</div></div>
+            <input type="number" id="cap-Transmission" min="0" step="0.5" value="3" style="width:90px;">
+          </div>
+          <div class="settings-row">
+            <div><div class="settings-label" style="color:#0e7490;">Substation</div></div>
+            <input type="number" id="cap-Substation" min="0" step="0.5" value="3" style="width:90px;">
           </div>
           <div class="settings-row">
             <div>
-              <div class="settings-label">Export report</div>
-              <div class="settings-desc">Generate a comprehensive printable report with all charts and data.</div>
+              <div class="settings-label">Appearance</div>
+              <div class="settings-desc">Switch between light and dark mode.</div>
             </div>
-            <button class="btn btn-sm" onclick="exportReport()"><i class="ti ti-file-export"></i> Export</button>
+            <label class="switch">
+              <input type="checkbox" id="darkModeToggle" onchange="toggleDarkMode()">
+              <span class="switch-slider"></span>
+            </label>
+          </div>
+          <div class="settings-row" style="border-bottom:none;">
+            <div></div>
+            <button class="btn btn-primary btn-sm" onclick="saveSettings()"><i class="ti ti-check"></i> Save settings</button>
           </div>
         </div>
 
@@ -337,11 +348,11 @@
       <div><label>Client / Utility</label><input type="text" id="f-client" placeholder="e.g. ERCOT"></div>
     </div>
     <div class="form-row-3 form-group">
-      <div><label>Start month</label><input type="month" id="f-start" onchange="refreshMonthInputs();updatePlanner();"></div>
-      <div><label>End month</label><input type="month" id="f-end" onchange="refreshMonthInputs();updatePlanner();"></div>
+      <div><label>Start month</label><input type="month" id="f-start" onchange="refreshMonthInputs();"></div>
+      <div><label>End month</label><input type="month" id="f-end" onchange="refreshMonthInputs();"></div>
       <div><label>Probability (%)</label><input type="number" id="f-prob" min="0" max="100" value="100"></div>
     </div>
-    <div class="form-row form-group">
+    <div class="form-group">
       <div>
         <label>Status</label>
         <select id="f-status">
@@ -352,34 +363,6 @@
           <option value="completed">Completed</option>
         </select>
       </div>
-      <div>
-        <label>Discipline</label>
-        <select id="f-discipline">
-          <option>Distribution</option>
-          <option>Transmission</option>
-          <option>Substation</option>
-        </select>
-      </div>
-    </div>
-
-    <!-- Planning calculator -->
-    <div class="planner-panel">
-      <div class="planner-header"><i class="ti ti-calculator"></i> Resource planning calculator</div>
-      <div class="form-row form-group" style="margin-bottom:8px;">
-        <div><label>Contract value ($)</label><input type="number" id="f-value" min="0" step="1000" placeholder="e.g. 250000" oninput="updatePlanner()"></div>
-        <div><label>Target margin (%)</label><input type="number" id="f-margin" min="-200" max="99" step="1" placeholder="e.g. 30" oninput="updatePlanner()"></div>
-      </div>
-      <div class="form-row form-group" style="margin-bottom:8px;">
-        <div><label>Avg FTE rate ($/hr)</label><input type="number" id="f-rate" min="0" step="5" placeholder="e.g. 100" oninput="updatePlanner()"></div>
-        <div id="planner-result" class="planner-result">
-          <span class="planner-hint">Enter value, margin, rate + dates to plan FTEs</span>
-        </div>
-      </div>
-      <div id="planner-actions" style="display:none;margin-top:2px;">
-        <button class="btn btn-sm btn-teal" onclick="applyPlannedFTEs()">
-          <i class="ti ti-wand"></i> Apply <span id="planner-ftes-val">0</span> FTEs/month evenly to schedule
-        </button>
-      </div>
     </div>
 
     <div class="form-group">
@@ -387,8 +370,13 @@
       <textarea id="f-notes" placeholder="Optional project notes, scope summary, etc."></textarea>
     </div>
 
-    <div class="month-section-title">Monthly resource headcount (FTEs)</div>
-    <div class="month-grid" id="month-inputs"></div>
+    <!-- Discipline segments -->
+    <div class="seg-section-head">
+      <div class="month-section-title" style="margin:0;">Discipline segments</div>
+      <button class="btn btn-sm btn-teal" type="button" onclick="addSegment()"><i class="ti ti-plus"></i> Add discipline</button>
+    </div>
+    <div class="seg-hint">Split this project across departments. Each segment has its own headcount, contract value, margin &amp; rate.</div>
+    <div id="segments-container"></div>
 
     <div class="modal-footer">
       <button class="btn btn-danger" id="modal-delete" onclick="deleteProject()" style="display:none;"><i class="ti ti-trash"></i> Delete</button>

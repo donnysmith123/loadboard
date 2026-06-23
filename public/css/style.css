@@ -34,6 +34,39 @@
   --sb-border: rgba(255,255,255,0.08);
 }
 
+/* ── Dark mode overrides ─────────────────────── */
+body.dark {
+  --bg: #0b1220;
+  --surface: #131c2e;
+  --surface2: #1d2840;
+  --border: rgba(255,255,255,0.08);
+  --border-med: rgba(255,255,255,0.16);
+  --text: #e8eef7;
+  --text-muted: #9fb3cc;
+  --text-faint: #6b829e;
+  --accent: #3b82f6;
+  --accent-bg: rgba(59,130,246,0.18);
+  --green: #34d399;
+  --green-light: #10b981;
+  --green-bg: rgba(16,185,129,0.18);
+  --teal: #22d3ee;
+  --teal-bg: rgba(34,211,238,0.16);
+  --blue-dark: #60a5fa;
+  --blue-dark-bg: rgba(96,165,250,0.18);
+  --amber: #fbbf24;
+  --amber-bg: rgba(251,191,36,0.16);
+  --red: #f87171;
+  --red-bg: rgba(248,113,113,0.16);
+  --shadow: 0 1px 3px rgba(0,0,0,0.4), 0 1px 2px rgba(0,0,0,0.3);
+  --shadow-md: 0 4px 16px rgba(0,0,0,0.5);
+  --sb-bg: #0a101d;
+}
+body.dark .project-table tr:hover td { background: rgba(255,255,255,0.04); }
+body.dark .metric-card::before { opacity: 0.85; }
+body.dark .planner-panel { background: linear-gradient(135deg, rgba(59,130,246,0.10) 0%, rgba(34,211,238,0.08) 100%); border-color: rgba(34,211,238,0.25); }
+body.dark .project-tooltip,
+body.dark #toast { background: #1d2840; }
+
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
 body {
@@ -464,6 +497,39 @@ th.sorted-desc .sort-icon::after { content: '↓'; opacity: 0.9; color: var(--te
 .project-tooltip.visible { display: block; }
 .tip-name { font-weight: 700; color: #fff; margin-bottom: 5px; font-size: 13px; }
 .tip-notes { color: rgba(255,255,255,0.75); }
+
+/* ── Discipline segments (modal) ────────────── */
+.seg-section-head { display: flex; align-items: center; justify-content: space-between; margin-top: 6px; margin-bottom: 4px; }
+.seg-hint { font-size: 11px; color: var(--text-faint); margin-bottom: 12px; line-height: 1.5; }
+.seg-card {
+  background: var(--bg);
+  border: 1px solid var(--border-med);
+  border-radius: var(--radius-lg);
+  padding: 14px;
+  margin-bottom: 12px;
+}
+.seg-card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px; }
+.seg-card-head .seg-discipline { width: auto; min-width: 160px; font-weight: 600; }
+.seg-planner-result { min-height: 20px; }
+
+/* ── Financials seg rows ─────────────────────── */
+.fin-proj-row td { border-top: 1px solid var(--border-med); }
+.fin-seg-row td { background: var(--bg); font-size: 11px; color: var(--text-muted); }
+.fin-seg-row:hover td { background: var(--surface2); }
+
+/* ── Toggle switch ───────────────────────────── */
+.switch { position: relative; display: inline-block; width: 44px; height: 24px; flex-shrink: 0; }
+.switch input { opacity: 0; width: 0; height: 0; }
+.switch-slider {
+  position: absolute; cursor: pointer; inset: 0;
+  background: var(--border-med); border-radius: 99px; transition: background 0.2s;
+}
+.switch-slider::before {
+  content: ''; position: absolute; height: 18px; width: 18px; left: 3px; top: 3px;
+  background: #fff; border-radius: 50%; transition: transform 0.2s;
+}
+.switch input:checked + .switch-slider { background: var(--accent); }
+.switch input:checked + .switch-slider::before { transform: translateX(20px); }
 
 /* ── Settings ───────────────────────────────── */
 .settings-row { display: flex; align-items: center; justify-content: space-between; padding: 16px 0; border-bottom: 1px solid var(--border); }
